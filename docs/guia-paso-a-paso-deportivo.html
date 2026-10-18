@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guía paso a paso: adaptar el Portal Deportivo a la base unificada</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1b1f23; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; color: #006532; }
+  h2 { font-size: 14pt; margin: 20pt 0 6pt; padding: 4pt 8pt; background: #006532; color: #fff; border-radius: 3pt; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 12pt 0 4pt; color: #006532; page-break-after: avoid; }
+  p { margin: 4pt 0 6pt; }
+  .sub { color: #555; margin-bottom: 10pt; }
+  pre { background: #f3f5f4; border: 1px solid #d5dbd8; border-left: 4px solid #008443; border-radius: 3pt; padding: 7pt 9pt; font-family: Consolas, "Courier New", monospace; font-size: 9pt; white-space: pre-wrap; word-break: break-all; margin: 5pt 0 8pt; page-break-inside: avoid; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.3pt; background: #eef1ef; padding: 0 3pt; border-radius: 2pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #c9d0cc; padding: 4pt 6pt; text-align: left; vertical-align: top; font-size: 9.8pt; }
+  th { background: #e6efe9; }
+  .box { border: 1px solid #c9d0cc; border-radius: 3pt; padding: 6pt 9pt; margin: 8pt 0; page-break-inside: avoid; }
+  .ok { background: #eaf6ee; border-color: #9ccfae; }
+  .warn { background: #fff6e0; border-color: #e7c66b; }
+  .check::before { content: "☐ "; }
+  ul.checks { list-style: none; padding-left: 0; }
+  ul.checks li { margin: 3pt 0; }
+  ul.checks li::before { content: "☐  "; }
+  ol, ul { margin: 4pt 0 6pt; padding-left: 18pt; }
+  .portada { padding: 30pt 0 10pt; border-bottom: 3px solid #008443; margin-bottom: 14pt; }
+  .num { display: inline-block; min-width: 20pt; }
+</style>
+</head>
+<body>
+
+<div class="portada">
+  <h1>Adaptar el Portal Deportivo a la base unificada</h1>
+  <div class="sub">Guía paso a paso para el equipo del Portal Deportivo · Club Atlético Camioneros de Córdoba · octubre de 2026</div>
+</div>
+
+<h2>0. Qué se hace y por qué</h2>
+<p>Los dos portales pasan a usar <b>una sola base de datos SQL Server</b> y <b>un solo inicio de sesión</b> (el del Portal Administrativo). El Portal Administrativo es la fuente de verdad de la <b>deuda</b> de cada jugador; el Portal Deportivo le pregunta si el jugador puede entrar.</p>
+<p>No hay que programar nada desde cero: les pasamos <b>dos parches</b> ya hechos y probados que modifican el código. Esta guía explica cómo aplicarlos, cómo configurar el proyecto y cómo comprobar que todo funciona.</p>
+
+<table>
+  <tr><th>Archivo</th><th>Para qué sirve</th></tr>
+  <tr><td><code>ellos-definitivo.patch</code></td><td>Parche del <b>BackEnd</b> (24 archivos: DAO, controladores, Program.cs, pruebas).</td></tr>
+  <tr><td><code>ellos-definitivo-frontend.patch</code></td><td>Parche del <b>FrontEnd</b> (15 archivos: alta de jugador, QR, pantalla de ingreso, sesión).</td></tr>
+  <tr><td><code>aplicar-parche.ps1</code></td><td>Script que aplica un parche cuidando los saltos de línea (CRLF/BOM) de sus archivos.</td></tr>
+  <tr><td><code>ClubCamioneros_unificada_v2_crear_base.sql</code></td><td>Script que crea la base unificada (vacía, con los catálogos).</td></tr>
+  <tr><td><code>seed_cuentas_prueba.sql</code></td><td>Cuentas de prueba (solo para desarrollo, nunca en producción).</td></tr>
+</table>
+<p>Todo está en el repositorio <b>cacc-unificacion</b> (carpetas <code>parches/</code>, <code>base-de-datos/</code> y <code>pruebas/</code>).</p>
+
+<h2>1. Antes de empezar</h2>
+<h3>1.1 Qué tiene que estar instalado</h3>
+<ul class="checks">
+  <li>Git para Windows.</li>
+  <li>.NET SDK 9.</li>
+  <li>Node.js 20.19 o superior y Google Chrome (para las pruebas del frontend).</li>
+  <li>SQL Server (Express alcanza) y la herramienta <code>sqlcmd</code>.</li>
+  <li>PowerShell (viene con Windows).</li>
+</ul>
+<h3>1.2 Partir de una copia limpia</h3>
+<p>Los parches están hechos sobre <code>main</code> en el commit <code>afa4e60</code>. Comprueben que están ahí y que no tienen cambios sin guardar:</p>
+<pre>cd C:\ruta\a\App-Club-Atletico-Camioneros
+git checkout main
+git pull
+git log -1 --oneline
+git status</pre>
+<p>Si el commit no es <code>afa4e60</code> (porque ya hicieron cambios), <b>avísennos antes de seguir</b>: puede que haya que regenerar el parche.</p>
+<h3>1.3 Crear una rama de trabajo</h3>
+<pre>git checkout -b feat/base-unificada</pre>
+<h3>1.4 Descargar los archivos de unificación</h3>
+<pre>cd C:\ruta\donde\quieran
+git clone &lt;url del repo cacc-unificacion&gt;</pre>
+<p>De acá en adelante, <code>UNIF</code> = la carpeta <code>cacc-unificacion</code> clonada.</p>
+
+<h2>2. Paso 1 · Crear la base de datos unificada</h2>
+<p>La base nueva <b>no se migra desde la vieja</b>: se crea vacía, con las tablas definitivas y los catálogos (roles, categorías, tipos de descuento). Los datos reales se cargarán después.</p>
+<pre>cd UNIF\base-de-datos
+sqlcmd -S localhost -E -C -b -i ClubCamioneros_unificada_v2_crear_base.sql</pre>
+<ul>
+  <li>Crea la base <code>ClubCamionerosUnificadaV2</code>. Es seguro repetirlo: si ya tiene tablas, no hace nada.</li>
+  <li>Si usan otro servidor o instancia: <code>-S localhost\SQLEXPRESS</code>.</li>
+</ul>
+<h3>Cuentas de prueba (solo en su máquina de desarrollo)</h3>
+<pre>sqlcmd -S localhost -E -C -I -b -f 65001 -d ClubCamionerosUnificadaV2 -i UNIF\pruebas\seed_cuentas_prueba.sql</pre>
+<p>Crea estas cuentas. La contraseña de todas es <code>Camioneros.Test.2026!</code> y se entra <b>con el DNI</b>:</p>
+<table>
+  <tr><th>Usuario (DNI)</th><th>Rol</th><th>Para probar</th></tr>
+  <tr><td>20111222</td><td>SuperAdmin (ve los dos portales)</td><td>Altas, bajas, QR, categorías</td></tr>
+  <tr><td>30000003</td><td>Médica (solo Deportivo)</td><td>Lectura, sin permiso de altas</td></tr>
+  <tr><td>30000004</td><td>Director Técnico, categoría 3 (solo Deportivo)</td><td>Solo ve su categoría</td></tr>
+</table>
+<div class="box warn"><b>Importante:</b> el login ya no está en el Deportivo. Estas cuentas entran por el <b>Portal Administrativo</b> (paso 7).</div>
+
+<h2>3. Paso 2 · Aplicar el parche del BackEnd</h2>
+<h3>3.1 Verificar que aplica (no modifica nada)</h3>
+<pre>cd UNIF\parches
+.\aplicar-parche.ps1 -Parche .\ellos-definitivo.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd -Verificar</pre>
+<p>Debe decir: <i>OK: el parche aplica (24 archivos). No se modificó nada.</i> Si falla, deténganse y avísennos con el mensaje de error.</p>
+<h3>3.2 Aplicarlo</h3>
+<pre>.\aplicar-parche.ps1 -Parche .\ellos-definitivo.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd</pre>
+<p>Debe decir: <i>Parche aplicado: 24 archivos.</i> El script respeta el formato (CRLF/BOM) de cada archivo, así que en <code>git diff</code> solo van a ver los cambios reales.</p>
+<div class="box warn">Si PowerShell bloquea el script: <code>Set-ExecutionPolicy -Scope Process Bypass</code> y volver a ejecutarlo.</div>
+
+<h2>4. Paso 3 · Configurar el BackEnd</h2>
+<p>Creen (o editen) <code>BackEnd\CACC.API\appsettings.Development.json</code>. Este archivo <b>no debe subirse a git</b> (tiene la clave): su <code>.gitignore</code> hoy no lo excluye, así que agreguen la línea <code>appsettings.Development.json</code> a <code>BackEnd/.gitignore</code> (o al <code>.gitignore</code> de la raíz) y comprueben con <code>git check-ignore -v BackEnd/CACC.API/appsettings.Development.json</code>.</p>
+<pre>{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=ClubCamionerosUnificadaV2;Trusted_Connection=True;TrustServerCertificate=True;"
+  },
+  "Jwt": {
+    "Key": "&lt;la MISMA clave que usa el Portal Administrativo&gt;",
+    "Issuer": "CACC-Unificado",
+    "Audience": "CACC-Unificado"
+  },
+  "AdministrativoApi": {
+    "BaseUrl": "http://localhost:5118",
+    "TimeoutSegundos": 3
+  }
+}</pre>
+<table>
+  <tr><th>Dato</th><th>Qué poner</th></tr>
+  <tr><td><code>DefaultConnection</code></td><td>La base creada en el paso 1. Ya no usen <code>Bbdd CACC.sql</code> ni la base <code>ClubCamioneros</code> vieja.</td></tr>
+  <tr><td><code>Jwt:Key / Issuer / Audience</code></td><td><b>Tienen que ser idénticos</b> a los del Portal Administrativo (es quien emite el token, y ustedes lo validan). La clave se la pasa el equipo Administrativo por un canal privado; <b>nunca</b> se sube al repositorio. Mínimo 32 caracteres.</td></tr>
+  <tr><td><code>AdministrativoApi:BaseUrl</code></td><td>Dirección de la API del Administrativo. En desarrollo ya viene por defecto <code>http://localhost:5118</code>.</td></tr>
+  <tr><td><code>AdministrativoApi:SiNoResponde</code></td><td>Decisión del club: <b>si el Administrativo no responde, no pasa nadie</b>. Es el valor por defecto (<code>Denegar</code>); no hay que tocarlo.</td></tr>
+  <tr><td><code>Cors:AllowedOrigins</code></td><td>Opcional. Por defecto permite los puertos de desarrollo 4200 (Administrativo) y 4300 (Deportivo).</td></tr>
+</table>
+<p>En producción, en lugar del archivo, se usan variables de entorno: <code>ConnectionStrings__DefaultConnection</code>, <code>Jwt__Key</code>, <code>Jwt__Issuer</code>, <code>Jwt__Audience</code>, <code>AdministrativoApi__BaseUrl</code>. La app <b>se niega a arrancar</b> en producción con la clave de ejemplo que hoy está en <code>appsettings.json</code>.</p>
+
+<h2>5. Paso 4 · Compilar y correr las pruebas del BackEnd</h2>
+<pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd
+dotnet build CACC.API\CACC.API.csproj
+dotnet test CACC.Tests\CACC.Tests.csproj</pre>
+<div class="box ok"><b>Resultado esperado:</b> compila sin errores y <b>56 pruebas correctas, 0 con error</b> (antes eran 18; se reescribieron las del QR porque ahora consulta al Administrativo).</div>
+
+<h2>6. Paso 5 · Aplicar el parche del FrontEnd y probarlo</h2>
+<pre>cd UNIF\parches
+.\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd -Verificar
+.\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd</pre>
+<p>Debe decir que aplicó 15 archivos. Luego:</p>
+<pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd
+npm ci
+npx ng build
+npx ng test --watch=false --browsers=ChromeHeadless</pre>
+<div class="box ok"><b>Resultado esperado:</b> el build termina bien (los avisos de “exceeded maximum budget” ya existían). Pruebas: <b>59 en total, 58 correctas</b>. La que falla es <code>admin-coordinador-legacy-routes</code> y ya fallaba <b>antes</b> del parche (nombres de clases); no la tienen que arreglar para esto.</div>
+<h3>Dirección del Portal Administrativo</h3>
+<p>Abran <code>FrontEnd\src\app\core\auth\portales.config.ts</code>. En desarrollo debe decir <code>http://localhost:4200</code> (así viene). <b>Al publicar</b>, cambiar por la dirección real del Administrativo.</p>
+
+<h2>7. Paso 6 · Levantar todo junto</h2>
+<p>Necesitan los dos portales corriendo, porque el Deportivo <b>ya no tiene login</b> y consulta la deuda al Administrativo. Hay cuatro procesos:</p>
+<table>
+  <tr><th>Qué</th><th>Dirección</th><th>Cómo se levanta</th></tr>
+  <tr><td>API Administrativo</td><td>http://localhost:5118</td><td><code>dotnet run --project ApiGestion</code> (repo del Administrativo, rama <code>feat/base-unificada</code>). Con <code>Jwt:Key</code> igual a la del Deportivo y <code>ConnectionStrings:ConexionSQL</code> apuntando a la misma base.</td></tr>
+  <tr><td>Frontend Administrativo</td><td>http://localhost:4200</td><td><code>cd frontend-cacc</code>, <code>npm ci</code>, <code>npx ng serve</code></td></tr>
+  <tr><td>API Deportivo</td><td>http://localhost:5191</td><td><code>dotnet run --project CACC.API</code> (en <code>BackEnd</code>)</td></tr>
+  <tr><td>Frontend Deportivo</td><td>http://localhost:4300</td><td><code>npx ng serve --port 4300</code> (en <code>FrontEnd</code>)</td></tr>
+</table>
+<div class="box ok"><b>Atajo:</b> en <code>UNIF\scripts</code> hay un script que arma y levanta las dos APIs solas, con la base de prueba, para no configurar a mano:
+<pre>.\armar.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\App-Club-Atletico-Camioneros" -Recrear -Iniciar
+.\probar.ps1      # 88 verificaciones automáticas contra las dos APIs
+.\detener.ps1     # frena las APIs de prueba</pre>
+(Trabaja sobre una copia: no modifica sus repositorios. Usa los puertos 5318 y 5319.)</div>
+
+<h2>8. Paso 7 · Probar a mano, de punta a punta</h2>
+<p>Con los cuatro procesos corriendo, hagan esta recorrida y tilden cada punto. <b>El pase de sesión entre los dos sitios es lo único que no está probado en un navegador:</b> si algo falla acá, avísennos con captura.</p>
+<ul class="checks">
+  <li>Entrar a <code>http://localhost:4200</code> (Administrativo) con <code>20111222</code> y la contraseña de prueba. Aparece la elección de portales.</li>
+  <li>Elegir <b>Portal Deportivo</b>: el navegador pasa a <code>localhost:4300</code>, entra sin pedir contraseña y la barra de direcciones <b>no muestra el token</b>.</li>
+  <li>Abrir directamente <code>http://localhost:4300</code> en otra ventana sin sesión: muestra “El inicio de sesión es único” y un botón que lleva al Administrativo.</li>
+  <li>Entrar con <code>30000003</code> (Médica) o <code>30000004</code> (DT): van <b>directo</b> al Portal Deportivo, sin pasar por la elección de portales.</li>
+  <li><b>Alta de jugador</b> (como SuperAdmin): el formulario tiene el campo <b>Género</b> obligatorio; sin género ni categoría no deja guardar.</li>
+  <li>El jugador dado de alta aparece en el listado con estado de cuota (“AL DÍA”, “PENDIENTE” o “INHABILITADO”) que viene del Administrativo.</li>
+  <li><b>QR</b> (pantalla de escáner o DNI a mano): jugador al día → verde; con un mes de deuda → amarillo; con 2 o más cuotas vencidas → rojo y no registra asistencia.</li>
+  <li>Escanear el mismo jugador dos veces el mismo día: dice “ya registrada” y no duplica.</li>
+  <li><b>Baja</b>: dar de baja un jugador desde el Deportivo. Desaparece de los listados, el QR lo rechaza (rojo, “dado de baja”) y sus pagos siguen en la base.</li>
+  <li><b>Categoría</b>: intentar borrar una categoría con jugadores. Muestra el error con el motivo y no la borra.</li>
+  <li><b>Apagar la API del Administrativo</b> y escanear un DNI: el QR responde que no se pudo consultar la deuda y <b>no deja pasar</b>; los listados siguen abriendo pero con “SIN VERIFICAR”.</li>
+  <li>Cerrar sesión en el Administrativo: el token deja de servir también en el Deportivo (da 401).</li>
+</ul>
+
+<h2>9. Qué cambió en el código (para revisar)</h2>
+<table>
+  <tr><th>Tema</th><th>Qué se hizo</th></tr>
+  <tr><td>Altas</td><td><code>OUTPUT … INTO</code> y sin ids calculados a mano. Género (Masculino/Femenino) y categoría obligatorios en el formulario, en el servidor (400) y en la base. Al editar, el género nunca queda vacío.</td></tr>
+  <tr><td>Bajas</td><td>Listados, plantel y QR solo muestran jugadores activos. <code>DELETE /api/jugadores/{id}</code> ahora es <b>baja lógica</b> (<code>fecha_baja = hoy</code>); no borra pagos, descuentos, asistencias ni ficha médica.</td></tr>
+  <tr><td>Categorías</td><td>No se borra una categoría con jugadores o aranceles (HTTP 409). Ya no se deja <code>FK_id_categoria = NULL</code>.</td></tr>
+  <tr><td>Auditoría</td><td>Toda conexión de los DAO se abre con <code>OpenAuditadaAsync</code>, que registra quién escribe. <b>Regla para el futuro:</b> nunca abrir con <code>OpenAsync</code> a secas (una prueba falla si lo hacen).</td></tr>
+  <tr><td>Sesión</td><td><code>Program.cs</code> valida en cada pedido que el usuario siga activo y que el token no esté invalidado. Cerrar sesión en un portal la cierra en ambos.</td></tr>
+  <tr><td>Login único</td><td><code>POST api/auth/login</code> responde 410. La pantalla de ingreso recibe la sesión del Administrativo (<code>/login#sso=…</code>) y borra el token de la barra.</td></tr>
+  <tr><td>Roles</td><td>El rol 2 (Administrador del Administrativo) ya no entra al Deportivo.</td></tr>
+  <tr><td>QR y estado de cuota</td><td>La deuda ya <b>no se lee de <code>VISTA_ESTADO_DEUDA</code></b>: se consulta a <code>GET /api/estado-deuda/dni/{dni}</code> del Administrativo con el token del usuario; los listados usan una sola llamada por lote. Si el Administrativo no responde: 503 y no pasa nadie.</td></tr>
+</table>
+
+<h2>10. Problemas frecuentes</h2>
+<table>
+  <tr><th>Síntoma</th><th>Causa probable y solución</th></tr>
+  <tr><td>El parche “no aplica”</td><td>El repo no está en <code>afa4e60</code> o tiene cambios locales. Volver a una copia limpia de <code>main</code> o avisarnos.</td></tr>
+  <tr><td>Todo da 401 en el Deportivo</td><td><code>Jwt:Key/Issuer/Audience</code> distintos a los del Administrativo, o la sesión se cerró (hay que volver a entrar por el Administrativo).</td></tr>
+  <tr><td>La app no arranca: “clave de ejemplo”</td><td>Está usando la clave de <code>appsettings.json</code> fuera de Development. Configurar <code>Jwt__Key</code> real.</td></tr>
+  <tr><td>El QR responde 503</td><td>El Administrativo no está corriendo o <code>AdministrativoApi:BaseUrl</code> es incorrecta. Probar <code>http://localhost:5118/api/estado-deuda/dni/20111222</code> con un token (debe dar 404 o 200, no “sin conexión”).</td></tr>
+  <tr><td>El QR responde 401/403</td><td>El usuario no tiene permiso para consultar (el rol 2 no puede) o el token venció. Entrar de nuevo.</td></tr>
+  <tr><td>Error al dar de alta: género o categoría</td><td>La base rechaza altas sin género válido o sin categoría. Completar los dos campos.</td></tr>
+  <tr><td>CORS: el navegador bloquea las llamadas</td><td>El frontend corre en un puerto que no está en <code>Cors:AllowedOrigins</code>. Usar 4300 o agregarlo.</td></tr>
+  <tr><td>“Cannot find module” al compilar el frontend</td><td>Faltó <code>npm ci</code> en <code>FrontEnd</code>.</td></tr>
+</table>
+
+<h2>11. Cuando todo funciona: subir los cambios</h2>
+<pre>cd C:\ruta\a\App-Club-Atletico-Camioneros
+git status
+git add -A BackEnd FrontEnd
+git commit -m "feat: adaptacion a la base unificada y login unico (parche del Administrativo)"
+git push -u origin feat/base-unificada</pre>
+<p>Después abran un Pull Request hacia <code>main</code>. <b>No suban</b> <code>appsettings.Development.json</code> ni ninguna clave.</p>
+
+<h2>12. Antes de publicar (producción)</h2>
+<ul class="checks">
+  <li>Cadena de conexión y <code>Jwt__*</code> por variables de entorno, con la clave real compartida con el Administrativo.</li>
+  <li><code>AdministrativoApi__BaseUrl</code> con la dirección pública del Administrativo.</li>
+  <li><code>Cors__AllowedOrigins__0</code> con el dominio real del frontend del Deportivo.</li>
+  <li><code>portales.config.ts</code> con la dirección real del Administrativo (y, del otro lado, nosotros completamos la del Deportivo).</li>
+  <li>Las cuentas de prueba <b>no existen</b> en producción.</li>
+</ul>
+
+<p style="margin-top:16pt; color:#555;">¿Algo no coincide con lo que ven? Mándennos el mensaje de error exacto y el número de paso. Detalle técnico completo: <code>docs/parche-deportivo.md</code> y <code>docs/hallazgos-otro-equipo.md</code>.</p>
+
+</body>
+</html>
