@@ -122,6 +122,20 @@ Chk 'Flujo' 'el reingreso abre un periodo nuevo y conserva el anterior' ((SQ "SE
 Gap 'Auditoria' 'lo que escribe el Deportivo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='JUGADORES' AND accion='INSERT' AND id_entidad='$id' AND id_usuario IS NOT NULL") -ge 1) 'alta de jugador por el Deportivo'
 Chk 'Auditoria' 'lo que escribe el Administrativo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='PAGOS' AND accion='UPDATE' AND id_usuario IS NOT NULL") -ge 1) 'cobro'
 
+# ================= 2b. API DE ESTADO DE DEUDA (la fuente que el Deportivo va a consultar)
+Write-Host '--- 2b. API de estado de deuda' -ForegroundColor Cyan
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $T; $e = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'EstadoDeuda' 'consulta por DNI' ($r.s -eq 200 -and $e.estado -eq 'solo_entrenamientos' -and $e.accesoPermitido) "HTTP $($r.s) $($r.b)"
+$vista = SQ "SELECT CAST(cantidad_cuotas_vencidas AS varchar)+'/'+CAST(CAST(deuda_total AS int) AS varchar) FROM VISTA_ESTADO_DEUDA WHERE FK_id_jugador=$id"
+Chk 'EstadoDeuda' 'la API coincide con la vista provisoria (no se desalinean)' ($null -ne $e -and ("$($e.cuotasVencidas)/$([int]$e.deudaTotal)" -eq $vista)) "API=$($e.cuotasVencidas)/$([int]$e.deudaTotal) vista=$vista"
+$r = Call 'GET' "$A/api/estado-deuda/dni/41.000.001" $T; Chk 'EstadoDeuda' 'acepta el DNI con puntos' ($r.s -eq 200) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/10000001" $T; Chk 'EstadoDeuda' 'DNI que no es de un jugador: 404' ($r.s -eq 404) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/abc" $T; Chk 'EstadoDeuda' 'DNI invalido: 400' ($r.s -eq 400) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/estado-deuda/lote" $T @{ dnis = @('41.000.001', '10000001', 'xx') }; $l = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'EstadoDeuda' 'consulta por lote separa encontrados y no encontrados' ($r.s -eq 200 -and @($l.items).Count -eq 1 -and @($l.noEncontrados).Count -eq 2) "HTTP $($r.s) $($r.b)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $null; Chk 'EstadoDeuda' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TM; Chk 'EstadoDeuda' 'la Medica (solo Deportivo) puede consultar con su token' ($r.s -eq 200) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TD; Chk 'EstadoDeuda' 'el DT de la categoria del jugador (3) puede consultar' ($r.s -eq 200) "HTTP $($r.s)"
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',
@@ -148,6 +162,7 @@ $TA = Login '30000002' 'Camioneros-Club-7731'; Chk 'Cuentas' 'Ana entra por DNI'
 $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja en el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Administrador (rol 2) no consulta el estado deportivo: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
 Chk 'Cuentas' 'el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)
 
