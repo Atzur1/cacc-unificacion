@@ -1,0 +1,853 @@
+diff -ruN a/ApiGestion/Controllers/AuthController.cs b/ApiGestion/Controllers/AuthController.cs
+--- a/ApiGestion/Controllers/AuthController.cs	2026-10-18 16:38:22.454613200 -0300
++++ b/ApiGestion/Controllers/AuthController.cs	2026-10-18 16:38:22.537173200 -0300
+@@ -114,7 +114,7 @@
+                     if (clave is not null) _loginThrottle.Limpiar(clave);
+ 
+                     // Generamos el token JWT con el rol adentro
+-                    string token = GenerarToken(usuarioEncontrado.IdUsuario, usuarioEncontrado.Email, usuarioEncontrado.IdRol, usuarioEncontrado.TokenVersion);
++                    string token = GenerarToken(usuarioEncontrado);
+ 
+                     return Ok(new LoginResponseDTO
+                     {
+@@ -152,16 +152,24 @@
+             return NoContent();
+         }
+ 
+-        private string GenerarToken(int idUsuario, string email, int idRol, int tokenVersion)
++        // Un solo token para los dos portales (misma clave, emisor y audiencia):
++        //  - Portal Administrativo: ClaimTypes.Role = rol_portal ("1" SuperAdmin, "2" Administrador), solo si la cuenta tiene acceso.
++        //  - Portal Deportivo: ClaimTypes.Role = nombre del rol de ROLES, "id_rol" y "id_categoria" (uno por categoria del staff).
++        //  - "rol_portal" ("0" si no tiene acceso al Administrativo) y "tokenVersion" son los que valida este API.
++        private string GenerarToken(EntityLibrary.Usuario usuario)
+         {
+-            var claims = new[]
++            var claims = new List<Claim>
+             {
+-                new Claim(ClaimTypes.Email, email),
+-                new Claim(ClaimTypes.Role, idRol.ToString()),
+-                // Identificador de negocio usado por endpoints protegidos (ej. quién registró un cobro)
+-                new Claim("idUsuario", idUsuario.ToString()),
+-                new Claim("tokenVersion", tokenVersion.ToString())
++                new Claim(ClaimTypes.Email, usuario.Email),
++                new Claim(ClaimTypes.NameIdentifier, usuario.IdUsuario.ToString()),
++                new Claim("idUsuario", usuario.IdUsuario.ToString()),
++                new Claim("tokenVersion", usuario.TokenVersion.ToString()),
++                new Claim("rol_portal", usuario.IdRol.ToString())
+             };
++            if (usuario.IdRol != 0) claims.Add(new Claim(ClaimTypes.Role, usuario.IdRol.ToString()));
++            if (!string.IsNullOrWhiteSpace(usuario.NombreRolDeportivo)) claims.Add(new Claim(ClaimTypes.Role, usuario.NombreRolDeportivo));
++            if (usuario.IdRolDeportivo is int idRolDeportivo) claims.Add(new Claim("id_rol", idRolDeportivo.ToString()));
++            foreach (var idCategoria in usuario.IdsCategorias) claims.Add(new Claim("id_categoria", idCategoria.ToString()));
+ 
+             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
+             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+diff -ruN a/ApiGestion/Models/DiscountResponseDTO.cs b/ApiGestion/Models/DiscountResponseDTO.cs
+--- a/ApiGestion/Models/DiscountResponseDTO.cs	2026-10-18 16:38:22.467354300 -0300
++++ b/ApiGestion/Models/DiscountResponseDTO.cs	2026-10-18 16:38:22.551773100 -0300
+@@ -9,7 +9,7 @@
+     public string PlayerName { get; set; } = "";
+     public string Category { get; set; } = "";
+ 
+-    // The reason, as it reads in the TIPO_DESCUENTO catalogue
++    // The reason, as it reads in the TIPOS_DESCUENTO catalogue
+     public string Type { get; set; } = "";
+ 
+     // '%' or '$'. Tells the client which of the two values below to render.
+diff -ruN a/ApiGestion/Program.cs b/ApiGestion/Program.cs
+--- a/ApiGestion/Program.cs	2026-10-18 16:38:22.407405600 -0300
++++ b/ApiGestion/Program.cs	2026-10-18 16:38:22.491527600 -0300
+@@ -171,7 +171,7 @@
+             OnTokenValidated = async context =>
+             {
+                 var idClaim = context.Principal?.FindFirst("idUsuario")?.Value;
+-                var roleClaim = context.Principal?.FindFirst(ClaimTypes.Role)?.Value;
++                var roleClaim = context.Principal?.FindFirst("rol_portal")?.Value;
+                 var versionClaim = context.Principal?.FindFirst("tokenVersion")?.Value;
+                 if (!int.TryParse(idClaim, out var id) || !int.TryParse(roleClaim, out var role) || !int.TryParse(versionClaim, out var tokenVersion))
+                 {
+diff -ruN a/DaoLibrary/AccountAccessDao.cs b/DaoLibrary/AccountAccessDao.cs
+--- a/DaoLibrary/AccountAccessDao.cs	2026-10-18 16:38:22.408408200 -0300
++++ b/DaoLibrary/AccountAccessDao.cs	2026-10-18 16:38:22.491527600 -0300
+@@ -37,7 +37,7 @@
+         string? nombre;
+         // TOP (2): si dos cuentas respondieran al mismo identificador no se adivina cuál es; no se manda nada.
+         using (var find = new SqlCommand(
+-            $@"SELECT TOP (2) PK_id_usuario, email, nombre FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK)
++            $@"SELECT TOP (2) PK_id_usuario, email, nombre FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK) JOIN dbo.PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona
+                WHERE {(wanted.Value.EsCorreo ? "email = @valor" : AuthDao.DniNormalizadoSql + " = @valor")}
+                  AND activo = 1 AND activacion_pendiente = 0 AND acceso_portal = 1",
+             connection, transaction))
+@@ -62,7 +62,7 @@
+         string? email;
+         string? nombre;
+         using (var find = new SqlCommand(
+-            "SELECT email, nombre FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND activo = 1 AND activacion_pendiente = 0 AND acceso_portal = 1",
++            "SELECT email, nombre FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK) JOIN dbo.PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona WHERE PK_id_usuario = @id AND activo = 1 AND activacion_pendiente = 0 AND acceso_portal = 1",
+             connection, transaction))
+         {
+             find.Parameters.Add("@id", SqlDbType.Int).Value = userId;
+@@ -77,7 +77,7 @@
+         return new DestinatarioCorreo(email, nombre);
+     }
+ 
+-    // El nombre de USUARIO para saludar en el correo; vacío cuenta como sin cargar.
++    // El nombre de USUARIOS para saludar en el correo; vacío cuenta como sin cargar.
+     private static string? LeerNombre(SqlDataReader reader, int ordinal)
+     {
+         if (reader.IsDBNull(ordinal)) return null;
+@@ -132,7 +132,7 @@
+     {
+         using var connection = SqlConnectionFactory.Open(connectionString);
+         using var command = new SqlCommand(
+-            "SELECT email, activacion_pendiente, nombre FROM dbo.USUARIO WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 1",
++            "SELECT email, activacion_pendiente, nombre FROM dbo.USUARIOS JOIN dbo.PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 1",
+             connection);
+         command.Parameters.Add("@id", SqlDbType.Int).Value = userId;
+         using var reader = command.ExecuteReader();
+@@ -152,8 +152,9 @@
+     public (string? Nombre, string? Apellido, string? Dni, string? Email)? ObtenerTitularDelToken(string tokenHash)
+     {
+         using var connection = SqlConnectionFactory.Open(connectionString);
+-        using var command = new SqlCommand(@"SELECT u.nombre, u.apellido, u.dni, u.email FROM dbo.TOKEN_ACCESO_CUENTA t
+-            INNER JOIN dbo.USUARIO u ON u.PK_id_usuario = t.id_usuario
++        using var command = new SqlCommand(@"SELECT pe.nombre, pe.apellido, pe.dni, u.email FROM dbo.TOKEN_ACCESO_CUENTA t
++            INNER JOIN dbo.USUARIOS u ON u.PK_id_usuario = t.id_usuario
++            INNER JOIN dbo.PERSONAS pe ON pe.PK_id_persona = u.FK_id_persona
+             WHERE t.hash_token = @hash AND t.consumido_utc IS NULL AND t.vence_utc > SYSUTCDATETIME()
+               AND u.activo = 1 AND u.acceso_portal = 1
+               AND (t.tipo = 'ACTIVACION' OR (t.tipo = 'RECUPERACION' AND u.activacion_pendiente = 0))", connection);
+@@ -182,7 +183,7 @@
+     {
+         int? userId = null;
+         using (var lookup = new SqlCommand(@"SELECT t.id_usuario FROM dbo.TOKEN_ACCESO_CUENTA t WITH (UPDLOCK, HOLDLOCK)
+-            INNER JOIN dbo.USUARIO u ON u.PK_id_usuario = t.id_usuario
++            INNER JOIN dbo.USUARIOS u ON u.PK_id_usuario = t.id_usuario
+             WHERE t.hash_token = @hash AND t.consumido_utc IS NULL AND t.vence_utc > SYSUTCDATETIME()
+               AND u.activo = 1 AND u.acceso_portal = 1
+               AND (t.tipo = 'ACTIVACION' OR (t.tipo = 'RECUPERACION' AND u.activacion_pendiente = 0))",
+@@ -201,7 +202,7 @@
+                 setActor.Parameters.Add("@idUsuario", SqlDbType.Int).Value = userId.Value;
+                 setActor.ExecuteNonQuery();
+             }
+-            using var update = new SqlCommand(@"UPDATE dbo.USUARIO SET password_hash = @password, contrasenia = NULL,
++            using var update = new SqlCommand(@"UPDATE dbo.USUARIOS SET contrasenia = @password,
+                 token_version = token_version + 1, activacion_pendiente = 0
+                 WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 1;", connection, transaction);
+             update.Parameters.Add("@password", SqlDbType.NVarChar, 512).Value = passwordHash;
+diff -ruN a/DaoLibrary/AuditDao.cs b/DaoLibrary/AuditDao.cs
+--- a/DaoLibrary/AuditDao.cs	2026-10-18 16:38:22.409408200 -0300
++++ b/DaoLibrary/AuditDao.cs	2026-10-18 16:38:22.492584800 -0300
+@@ -54,7 +54,7 @@
+             // club realmente quiere ver de un vistazo: pagos (incluye cuotas saldadas, que
+             // viven como una acción dentro de PAGOS, no como su propia sección) y aranceles.
+             // Todo el resto (Usuarios, Jugadores, Categorías, Becas, TOKEN_ACCESO_CUENTA,
+-            // PERSONA) sigue existiendo y es buscable a propósito con "Sección" — esto solo
++            // PERSONAS) sigue existiendo y es buscable a propósito con "Sección" — esto solo
+             // lo saca de la vista por defecto, no lo borra ni lo oculta de forma permanente.
+             where.Append(" AND a.entidad IN ('PAGOS', 'ARANCELES')");
+         }
+diff -ruN a/DaoLibrary/AuditReferenceResolver.cs b/DaoLibrary/AuditReferenceResolver.cs
+--- a/DaoLibrary/AuditReferenceResolver.cs	2026-10-18 16:38:22.410409000 -0300
++++ b/DaoLibrary/AuditReferenceResolver.cs	2026-10-18 16:38:22.493582100 -0300
+@@ -50,14 +50,14 @@
+             SELECT CAST(j.PK_id_jugador AS BIGINT),
+                    LTRIM(RTRIM(ISNULL(p.apellido, ''))) + ', ' + LTRIM(RTRIM(ISNULL(p.nombre, '')))
+                        + CASE WHEN p.Dni IS NULL THEN '' ELSE ' (DNI ' + LTRIM(RTRIM(p.Dni)) + ')' END
+-            FROM JUGADORES j JOIN PERSONA p ON p.PK_id_persona = j.FK_id_persona
++            FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona = j.FK_id_persona
+             WHERE j.PK_id_jugador IN ({ids})",
+ 
+         AuditReferences.Persona => @"
+             SELECT CAST(p.PK_id_persona AS BIGINT),
+                    LTRIM(RTRIM(ISNULL(p.apellido, ''))) + ', ' + LTRIM(RTRIM(ISNULL(p.nombre, '')))
+                        + CASE WHEN p.Dni IS NULL THEN '' ELSE ' (DNI ' + LTRIM(RTRIM(p.Dni)) + ')' END
+-            FROM PERSONA p
++            FROM PERSONAS p
+             WHERE p.PK_id_persona IN ({ids})",
+ 
+         AuditReferences.Categoria => @"
+@@ -66,7 +66,7 @@
+ 
+         AuditReferences.Tipo => @"
+             SELECT CAST(PK_id_descuento AS BIGINT), tipo_descuento
+-            FROM TIPO_DESCUENTO WHERE PK_id_descuento IN ({ids})",
++            FROM TIPOS_DESCUENTO WHERE PK_id_descuento IN ({ids})",
+ 
+         // Una cuenta del portal: nombre y apellido si los tiene cargados, si no su correo.
+         AuditReferences.Usuario => @"
+@@ -74,7 +74,7 @@
+                    CASE WHEN LTRIM(RTRIM(ISNULL(apellido, ''))) = '' AND LTRIM(RTRIM(ISNULL(nombre, ''))) = ''
+                         THEN email
+                         ELSE LTRIM(RTRIM(ISNULL(apellido, ''))) + ', ' + LTRIM(RTRIM(ISNULL(nombre, ''))) END
+-            FROM USUARIO WHERE PK_id_usuario IN ({ids})",
++            FROM USUARIOS LEFT JOIN PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona WHERE PK_id_usuario IN ({ids})",
+ 
+         // Una bonificación, por su motivo y su valor: "Becado · 50 %" o "Descuento · $15.000".
+         AuditReferences.Beneficio => @"
+@@ -85,7 +85,7 @@
+                               WHEN jd.monto_fijo IS NOT NULL
+                               THEN ' · $' + CONVERT(VARCHAR(20), CAST(jd.monto_fijo AS DECIMAL(12, 2)))
+                               ELSE '' END
+-            FROM JUGADORES_DESCUENTOS jd JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
++            FROM JUGADORES_DESCUENTOS jd JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
+             WHERE jd.PK_id_jugador_descuento IN ({ids})",
+ 
+         _ => null
+diff -ruN a/DaoLibrary/AuditReferences.cs b/DaoLibrary/AuditReferences.cs
+--- a/DaoLibrary/AuditReferences.cs	2026-10-18 16:38:22.410409000 -0300
++++ b/DaoLibrary/AuditReferences.cs	2026-10-18 16:38:22.493582100 -0300
+@@ -16,7 +16,7 @@
+     public const string Beneficio = "beneficio";
+ 
+     // Qué tabla nombra cada campo numérico de la copia guardada. idTipo es el motivo de la bonificación
+-    // (TIPO_DESCUENTO) y idDescuento, en un pago, la bonificación aplicada (JUGADORES_DESCUENTOS).
++    // (TIPOS_DESCUENTO) y idDescuento, en un pago, la bonificación aplicada (JUGADORES_DESCUENTOS).
+     private static readonly Dictionary<string, string> TipoPorCampo = new(StringComparer.Ordinal)
+     {
+         ["idJugador"] = Jugador,
+@@ -31,10 +31,10 @@
+     private static readonly Dictionary<string, string> TipoPorEntidad = new(StringComparer.Ordinal)
+     {
+         ["JUGADORES"] = Jugador,
+-        ["PERSONA"] = Persona,
+-        ["USUARIO"] = Usuario,
++        ["PERSONAS"] = Persona,
++        ["USUARIOS"] = Usuario,
+         ["CATEGORIAS"] = Categoria,
+-        ["TIPO_DESCUENTO"] = Tipo,
++        ["TIPOS_DESCUENTO"] = Tipo,
+     };
+ 
+     public static string Clave(string tipo, long id) => $"{tipo}:{id}";
+diff -ruN a/DaoLibrary/AuthDao.cs b/DaoLibrary/AuthDao.cs
+--- a/DaoLibrary/AuthDao.cs	2026-10-18 16:38:22.411408500 -0300
++++ b/DaoLibrary/AuthDao.cs	2026-10-18 16:38:22.494582700 -0300
+@@ -27,10 +27,14 @@
+         // todavía no completó el enlace de activación: sin esto, una contraseña vieja
+         // que el otro equipo haya dejado cargada serviría para entrar antes de tiempo.
+         // TOP (2): si dos cuentas respondieran al mismo identificador no se adivina cuál es; no se deja entrar a ninguna.
+-        string query = $@"SELECT TOP (2) PK_id_usuario, email, nombre, apellido, dni, password_hash, token_version, acceso_portal, rol_portal
+-            FROM USUARIO
++        // Unificada: nombre, apellido y DNI viven en PERSONAS. Entra quien tiene acceso al Portal Administrativo o un rol del
++        // Portal Deportivo (FK_id_rol); el Administrativo sigue autorizando solo con acceso_portal / rol_portal.
++        string query = $@"SELECT TOP (2) PK_id_usuario, email, nombre, apellido, dni, contrasenia, token_version, acceso_portal, rol_portal,
++                   FK_id_rol, ROLES.nombre_rol AS nombre_rol_deportivo
++            FROM USUARIOS JOIN PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona
++                 LEFT JOIN ROLES ON ROLES.PK_id_rol = USUARIOS.FK_id_rol
+             WHERE {(buscado.Value.EsCorreo ? "email = @valor" : DniNormalizadoSql + " = @valor")}
+-              AND activo = 1 AND acceso_portal = 1 AND activacion_pendiente = 0";
++              AND activo = 1 AND (acceso_portal = 1 OR FK_id_rol IS NOT NULL) AND activacion_pendiente = 0";
+         using var comando = new SqlCommand(query, conexion);
+         comando.Parameters.Add("@valor", System.Data.SqlDbType.NVarChar, 254).Value = buscado.Value.Valor;
+         using var reader = comando.ExecuteReader();
+@@ -42,7 +46,7 @@
+             return null;
+         }
+ 
+-        var hash = reader["password_hash"] as string;
++        var hash = reader["contrasenia"] as string;
+ 
+         var usuario = new Usuario
+         {
+@@ -53,15 +57,17 @@
+             Dni = reader["dni"] as string ?? string.Empty,
+             AccesoPortal = Convert.ToBoolean(reader["acceso_portal"]),
+             RolPortal = reader["rol_portal"] != DBNull.Value ? Convert.ToInt32(reader["rol_portal"]) : null,
+-            TokenVersion = Convert.ToInt32(reader["token_version"])
++            TokenVersion = Convert.ToInt32(reader["token_version"]),
++            IdRolDeportivo = reader["FK_id_rol"] != DBNull.Value ? Convert.ToInt32(reader["FK_id_rol"]) : null,
++            NombreRolDeportivo = reader["nombre_rol_deportivo"] as string
+         };
+         // La constraint CK_USUARIO_acceso_portal_requiere_rol garantiza que rol_portal
+         // no sea NULL cuando acceso_portal = 1, que es lo único que llega hasta acá.
+-        usuario.IdRol = usuario.RolPortal!.Value;
++        usuario.IdRol = usuario.AccesoPortal ? usuario.RolPortal!.Value : 0;
+         if (reader.Read()) return null; // identificador ambiguo
+ 
+         // Solo contraseñas con hash (BCrypt, o PBKDF2 de antes del cambio). La columna contrasenia en texto plano ya
+-        // no se lee: una cuenta sin password_hash no puede entrar hasta crear su contraseña con el enlace de
++        // no se lee: una cuenta sin contrasenia no puede entrar hasta crear su contraseña con el enlace de
+         // activación o de "¿Olvidaste tu contraseña?". Se gasta igual el tiempo de una verificación para no delatarla.
+         if (hash is null)
+         {
+@@ -81,9 +87,23 @@
+             UpdatePasswordHash(usuario.IdUsuario, hash, PasswordHasher.HashPassword(contrasenia));
+         }
+ 
++        usuario.IdsCategorias = CategoriasDelStaff(usuario.IdUsuario);
+         return usuario;
+     }
+ 
++    // Categorías que tiene asignadas (Director Técnico / Preparador Físico): las usa el Portal Deportivo para acotar lo que ve.
++    private List<int> CategoriasDelStaff(int idUsuario)
++    {
++        var ids = new List<int>();
++        using var conexion = SqlConnectionFactory.Open(_cadenaConexion);
++        using var comando = new SqlCommand(@"SELECT sc.FK_id_categoria FROM STAFF s JOIN STAFF_CATEGORIAS sc ON sc.FK_id_staff = s.PK_id_staff
++            WHERE s.FK_id_usuario = @id AND sc.FK_id_categoria IS NOT NULL", conexion);
++        comando.Parameters.Add("@id", System.Data.SqlDbType.Int).Value = idUsuario;
++        using var lector = comando.ExecuteReader();
++        while (lector.Read()) ids.Add(lector.GetInt32(0));
++        return ids;
++    }
++
+     // Hash válido de una contraseña al azar, solo para gastar el mismo tiempo que una verificación real.
+     private static readonly string HashDeReferencia = PasswordHasher.HashPassword(Guid.NewGuid().ToString("N"));
+ 
+@@ -95,7 +115,7 @@
+         {
+             using var connection = SqlConnectionFactory.Open(_cadenaConexion);
+             using var command = new SqlCommand(
+-                "UPDATE dbo.USUARIO SET password_hash = @newHash WHERE PK_id_usuario = @id AND password_hash = @currentHash",
++                "UPDATE dbo.USUARIOS SET contrasenia = @newHash WHERE PK_id_usuario = @id AND contrasenia = @currentHash",
+                 connection);
+             command.Parameters.Add("@newHash", System.Data.SqlDbType.NVarChar, 512).Value = newHash;
+             command.Parameters.Add("@currentHash", System.Data.SqlDbType.NVarChar, 512).Value = currentHash;
+@@ -109,15 +129,18 @@
+     public void InvalidarSesiones(int idUsuario)
+     {
+         using var conexion = SqlConnectionFactory.Open(_cadenaConexion);
+-        using var comando = new SqlCommand("UPDATE USUARIO SET token_version = token_version + 1 WHERE PK_id_usuario = @id", conexion);
++        using var comando = new SqlCommand("UPDATE USUARIOS SET token_version = token_version + 1 WHERE PK_id_usuario = @id", conexion);
+         comando.Parameters.Add("@id", System.Data.SqlDbType.Int).Value = idUsuario;
+         comando.ExecuteNonQuery();
+     }
+ 
++    // idRol 0 = cuenta sin acceso al Portal Administrativo (solo Portal Deportivo): se valida solo que siga activa.
+     public bool UsuarioActivoConRol(int idUsuario, int idRol, int tokenVersion)
+     {
+         using var conexion = SqlConnectionFactory.Open(_cadenaConexion);
+-        using var comando = new SqlCommand("SELECT 1 FROM USUARIO WHERE PK_id_usuario = @id AND rol_portal = @rol AND acceso_portal = 1 AND activo = 1 AND token_version = @version", conexion);
++        using var comando = new SqlCommand(idRol == 0
++            ? "SELECT 1 FROM USUARIOS WHERE PK_id_usuario = @id AND @rol = 0 AND activo = 1 AND token_version = @version"
++            : "SELECT 1 FROM USUARIOS WHERE PK_id_usuario = @id AND rol_portal = @rol AND acceso_portal = 1 AND activo = 1 AND token_version = @version", conexion);
+         comando.Parameters.Add("@id", System.Data.SqlDbType.Int).Value = idUsuario;
+         comando.Parameters.Add("@rol", System.Data.SqlDbType.Int).Value = idRol;
+         comando.Parameters.Add("@version", System.Data.SqlDbType.Int).Value = tokenVersion;
+diff -ruN a/DaoLibrary/CuotasFaltantesDao.cs b/DaoLibrary/CuotasFaltantesDao.cs
+--- a/DaoLibrary/CuotasFaltantesDao.cs	2026-10-18 16:38:22.412915600 -0300
++++ b/DaoLibrary/CuotasFaltantesDao.cs	2026-10-18 16:38:22.495583100 -0300
+@@ -32,7 +32,7 @@
+                 SELECT m.mes, COUNT(*) AS cantidad, SUM(arancel.monto) AS monto_total
+                 FROM meses m
+                 JOIN JUGADORES j ON {SqlCuotaMensual.JugadorEnElClub("m.mes")}
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 CROSS APPLY ({SqlCuotaMensual.ArancelDelJugador("m.mes")}) AS arancel
+                 WHERE {SqlCuotaMensual.SinCuotaEnElMes("m.mes")}
+                 GROUP BY m.mes
+@@ -67,7 +67,7 @@
+             string query = $@"
+                 SELECT j.PK_id_jugador, p.nombre, p.apellido, p.Dni, c.nombre_categoria, arancel.monto
+                 FROM JUGADORES j
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+                 CROSS APPLY ({SqlCuotaMensual.ArancelDelJugador("@mes")}) AS arancel
+                 WHERE {SqlCuotaMensual.JugadorEnElClub("@mes")}
+diff -ruN a/DaoLibrary/DiscountDao.cs b/DaoLibrary/DiscountDao.cs
+--- a/DaoLibrary/DiscountDao.cs	2026-10-18 16:38:22.414422300 -0300
++++ b/DaoLibrary/DiscountDao.cs	2026-10-18 16:38:22.497581900 -0300
+@@ -9,7 +9,7 @@
+     private readonly string _connectionString;
+ 
+     // Since HU-011 the benefit itself lives in JUGADORES_DESCUENTOS and
+-    // TIPO_DESCUENTO only holds the reason, so every projection reads the value
++    // TIPOS_DESCUENTO only holds the reason, so every projection reads the value
+     // and the validity from the assignment row.
+     private const string SelectColumns = @"
+             jd.PK_id_jugador_descuento,
+@@ -31,8 +31,8 @@
+     private const string FromJoins = @"
+         FROM JUGADORES_DESCUENTOS jd
+             INNER JOIN JUGADORES j ON j.PK_id_jugador = jd.FK_id_jugador
+-            INNER JOIN PERSONA p ON p.PK_id_persona = j.FK_id_persona
+-            INNER JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
++            INNER JOIN PERSONAS p ON p.PK_id_persona = j.FK_id_persona
++            INNER JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
+             LEFT JOIN CATEGORIAS c ON c.PK_id_categoria = j.FK_id_categoria
+             OUTER APPLY (
+                 SELECT TOP (1) ac.nombre_usuario, ac.apellido_usuario
+@@ -146,7 +146,7 @@
+     public List<DiscountType> GetDiscountTypes()
+     {
+         List<DiscountType> types = new List<DiscountType>();
+-        string query = "SELECT PK_id_descuento, tipo_descuento FROM TIPO_DESCUENTO ORDER BY PK_id_descuento;";
++        string query = "SELECT PK_id_descuento, tipo_descuento FROM TIPOS_DESCUENTO ORDER BY PK_id_descuento;";
+ 
+         using (SqlConnection connection = SqlConnectionFactory.Open(_connectionString))
+         {
+@@ -175,7 +175,7 @@
+     public virtual DiscountType? GetDiscountTypeByName(string name)
+     {
+         DiscountType? foundType = null;
+-        string query = "SELECT PK_id_descuento, tipo_descuento FROM TIPO_DESCUENTO WHERE tipo_descuento = @name;";
++        string query = "SELECT PK_id_descuento, tipo_descuento FROM TIPOS_DESCUENTO WHERE tipo_descuento = @name;";
+ 
+         using (SqlConnection connection = SqlConnectionFactory.Open(_connectionString))
+         {
+diff -ruN a/DaoLibrary/EstadisticasDao.cs b/DaoLibrary/EstadisticasDao.cs
+--- a/DaoLibrary/EstadisticasDao.cs	2026-10-18 16:38:22.416429600 -0300
++++ b/DaoLibrary/EstadisticasDao.cs	2026-10-18 16:38:22.498582300 -0300
+@@ -192,7 +192,7 @@
+                 FROM PAGOS pg
+                 {DescuentosSql.ApplyDescuentoActivo}
+                 JOIN JUGADORES j ON pg.FK_id_jugador = j.PK_id_jugador
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+                 WHERE pg.estado = 0
+                 GROUP BY j.PK_id_jugador, p.nombre, p.apellido, c.nombre_categoria
+diff -ruN a/DaoLibrary/IUsuariosPortalDao.cs b/DaoLibrary/IUsuariosPortalDao.cs
+--- a/DaoLibrary/IUsuariosPortalDao.cs	2026-10-18 16:38:22.422477100 -0300
++++ b/DaoLibrary/IUsuariosPortalDao.cs	2026-10-18 16:38:22.505604200 -0300
+@@ -25,14 +25,14 @@
+     public interface IUsuariosPortalDao
+     {
+         // Gente cargada por el otro equipo con FK_id_rol de SuperAdmin/Administrador
+-        // que todavía no tiene acceso al portal ni tuvo nunca (sin password_hash).
++        // que todavía no tiene acceso al portal ni tuvo nunca (sin contrasenia).
+         IReadOnlyList<UsuarioCandidato> ListarCandidatos();
+ 
+         // Gente con acceso_portal = 1 hoy.
+         IReadOnlyList<UsuarioPortal> ListarHabilitados();
+ 
+         // Tuvieron acceso alguna vez y se les deshabilitó (acceso_portal = 0, pero ya
+-        // tienen password_hash y rol_portal de cuando estaban activos).
++        // tienen contrasenia y rol_portal de cuando estaban activos).
+         IReadOnlyList<UsuarioPortal> ListarDeshabilitados();
+ 
+         // Corrige nombre, apellido y DNI de un candidato todavía sin acceso, por si el otro equipo los cargó
+diff -ruN a/DaoLibrary/JugadoresDao.cs b/DaoLibrary/JugadoresDao.cs
+--- a/DaoLibrary/JugadoresDao.cs	2026-10-18 16:38:22.423477200 -0300
++++ b/DaoLibrary/JugadoresDao.cs	2026-10-18 16:38:22.506606400 -0300
+@@ -16,7 +16,7 @@
+         private const string SelectJugador = @"
+                 SELECT j.PK_id_jugador, p.nombre, p.apellido, p.Dni, p.genero, c.nombre_categoria, j.fecha_alta, j.fecha_baja
+                 FROM JUGADORES j
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria";
+ 
+         public JugadoresDao(string cadenaConexion)
+diff -ruN a/DaoLibrary/PagosDao.cs b/DaoLibrary/PagosDao.cs
+--- a/DaoLibrary/PagosDao.cs	2026-10-18 16:38:22.424478600 -0300
++++ b/DaoLibrary/PagosDao.cs	2026-10-18 16:38:22.508608400 -0300
+@@ -64,7 +64,7 @@
+                 SELECT d.PK_id_jugador_descuento, td.tipo_descuento AS motivo, d.tipo_valor, d.porcentaje, d.monto_fijo
+                 FROM (SELECT @idJugador AS FK_id_jugador, @fechaVencimiento AS fecha_vencimiento, CAST('Cuota' AS VARCHAR(20)) AS concepto) pg
+                 {DescuentosSql.ApplyDescuentoActivo}
+-                JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento";
++                JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento";
+ 
+             using SqlCommand comando = new SqlCommand(query, conexion, transaccion);
+             comando.Parameters.Add("@idJugador", System.Data.SqlDbType.Int).Value = idJugador;
+@@ -155,7 +155,7 @@
+                     SELECT DISTINCT p.FK_id_jugador, YEAR(p.fecha_vencimiento) AS anio, MONTH(p.fecha_vencimiento) AS mes
+                     FROM PAGOS p WITH (UPDLOCK, HOLDLOCK)
+                     JOIN JUGADORES j ON j.PK_id_jugador = p.FK_id_jugador
+-                    JOIN PERSONA pe ON pe.PK_id_persona = j.FK_id_persona
++                    JOIN PERSONAS pe ON pe.PK_id_persona = j.FK_id_persona
+                     WHERE {FiltroCuotasDelArancel}
+                       AND p.estado = 1
+                       AND (@montoBase IS NULL OR {CuotaEmitidaConMonto})
+@@ -174,7 +174,7 @@
+                 DELETE p
+                 FROM PAGOS p WITH (UPDLOCK, HOLDLOCK)
+                 JOIN JUGADORES j ON j.PK_id_jugador = p.FK_id_jugador
+-                JOIN PERSONA pe ON pe.PK_id_persona = j.FK_id_persona
++                JOIN PERSONAS pe ON pe.PK_id_persona = j.FK_id_persona
+                 WHERE {FiltroCuotasDelArancel}
+                   AND p.estado = 0
+                   AND (@montoBase IS NULL OR p.monto_base = @montoBase)
+@@ -465,7 +465,7 @@
+                 FROM PAGOS pg
+                 {DescuentosSql.ApplyDescuentoActivo}
+                 JOIN JUGADORES j ON pg.FK_id_jugador = j.PK_id_jugador
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+                 WHERE pg.estado = 0 AND pg.concepto = 'Cuota'
+                   AND (@idCategoria IS NULL OR j.FK_id_categoria = @idCategoria)
+@@ -524,7 +524,7 @@
+                        ISNULL(d.cantidad_cuotas, 0) AS cantidad_cuotas,
+                        ISNULL(d.cantidad_vencidas, 0) AS cantidad_vencidas
+                 FROM JUGADORES j
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+                 LEFT JOIN (
+                     SELECT t.FK_id_jugador,
+@@ -570,7 +570,7 @@
+         {
+             var resultado = new List<CategoriaDeuda>();
+ 
+-            // No hace falta JOIN a PERSONA acá (no se necesita nombre/DNI, solo el total por
++            // No hace falta JOIN a PERSONAS acá (no se necesita nombre/DNI, solo el total por
+             // categoría), así que la consulta queda liviana aunque el club tenga 700+ jugadores.
+             string query = $@"
+                 SELECT j.FK_id_categoria, c.nombre_categoria,
+@@ -682,7 +682,7 @@
+                              THEN 1 ELSE 0 END AS cumple_filtros
+                     FROM Grupos g
+                     JOIN JUGADORES j ON g.FK_id_jugador = j.PK_id_jugador
+-                    JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                    JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                     JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+                     WHERE g.rn = 1
+                 )";
+@@ -804,7 +804,7 @@
+                        ({DescuentosSql.SaldoAjustadoExpr}) AS saldo_ajustado
+                 FROM PAGOS pg
+                 {DescuentosSql.ApplyDescuentoActivo}
+-                LEFT JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento
++                LEFT JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento
+                 WHERE pg.FK_id_jugador = @idJugador AND pg.estado = 0
+                 ORDER BY pg.fecha_vencimiento, pg.concepto";
+ 
+@@ -893,7 +893,7 @@
+             const string queryJugador = @"
+                 SELECT j.PK_id_jugador, p.nombre, p.apellido, p.Dni
+                 FROM JUGADORES j
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 WHERE j.PK_id_jugador = @idJugador";
+ 
+             using SqlConnection conexion = SqlConnectionFactory.Open(_cadenaConexion);
+@@ -931,7 +931,7 @@
+                        ({DescuentosSql.SaldoAjustadoExpr}) AS saldo_ajustado
+                 FROM PAGOS pg
+                 {DescuentosSql.ApplyDescuentoActivo}
+-                LEFT JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento
++                LEFT JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = d.FK_id_descuento
+                 WHERE pg.FK_id_jugador = @idJugador AND pg.concepto = 'Cuota' AND pg.fecha_vencimiento IS NOT NULL
+                 ORDER BY pg.fecha_vencimiento, pg.fecha_pago, pg.PK_id_pago";
+ 
+@@ -1044,7 +1044,7 @@
+                        a.fecha_grupo, a.fecha_vencimiento, jd.tipo_valor, jd.porcentaje, jd.monto_fijo, td.tipo_descuento AS motivo
+                 FROM Agrupado a
+                 LEFT JOIN JUGADORES_DESCUENTOS jd ON jd.PK_id_jugador_descuento = a.id_descuento_grupo
+-                LEFT JOIN TIPO_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
++                LEFT JOIN TIPOS_DESCUENTO td ON td.PK_id_descuento = jd.FK_id_descuento
+                 WHERE a.rn = 1
+                 ORDER BY a.fecha_grupo DESC, a.clave_periodo DESC, a.concepto
+                 OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
+diff -ruN a/DaoLibrary/PlayerDao.cs b/DaoLibrary/PlayerDao.cs
+--- a/DaoLibrary/PlayerDao.cs	2026-10-18 16:38:22.426478200 -0300
++++ b/DaoLibrary/PlayerDao.cs	2026-10-18 16:38:22.509603400 -0300
+@@ -19,11 +19,11 @@
+         _connectionString = connectionString;
+     }
+ 
+-    // PERSONA is shared with staff, guardians and users, so the DNI is checked
++    // PERSONAS is shared with staff, guardians and users, so the DNI is checked
+     // against every person and not only against players.
+     public virtual bool ExistsPersonByDni(string dni)
+     {
+-        string query = "SELECT COUNT(*) FROM PERSONA WHERE LTRIM(RTRIM(Dni)) = @dni;";
++        string query = "SELECT COUNT(*) FROM PERSONAS WHERE LTRIM(RTRIM(Dni)) = @dni;";
+ 
+         using SqlConnection connection = SqlConnectionFactory.Open(_connectionString);
+ 
+@@ -77,7 +77,7 @@
+         string query = $@"
+             SELECT TOP (@maxResults) j.PK_id_jugador, p.nombre, p.apellido, p.Dni, c.nombre_categoria, j.fecha_baja
+             FROM JUGADORES j
+-            JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++            JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+             JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+             WHERE {filter}
+             ORDER BY
+@@ -177,7 +177,7 @@
+             // ExistsPersonByDni (antes de la transacción) solo da el mensaje rápido; esta verificación con
+             // bloqueo de rango es la que impide que dos altas simultáneas del mismo DNI pasen las dos.
+             using (SqlCommand duplicate = new SqlCommand(
+-                "SELECT COUNT(*) FROM PERSONA WITH (UPDLOCK, HOLDLOCK) WHERE LTRIM(RTRIM(Dni)) = @dni;", connection, transaction))
++                "SELECT COUNT(*) FROM PERSONAS WITH (UPDLOCK, HOLDLOCK) WHERE LTRIM(RTRIM(Dni)) = @dni;", connection, transaction))
+             {
+                 duplicate.Parameters.AddWithValue("@dni", player.Dni.Trim());
+                 if (Convert.ToInt32(duplicate.ExecuteScalar()) > 0)
+@@ -215,14 +215,14 @@
+     // The three insert helpers are internal (not private) so the integration test can run them inside a
+     // transaction it rolls back.
+     //
+-    // OUTPUT INTO (not a bare OUTPUT): PERSONA has an audit trigger (TR_AUDIT_PERSONA) and SQL Server
++    // OUTPUT INTO (not a bare OUTPUT): PERSONAS has an audit trigger (TR_AUDIT_PERSONA) and SQL Server
+     // refuses a bare OUTPUT on a table with enabled triggers (Msg 334). This is also what PagosDao does.
+     internal static int InsertPerson(SqlConnection connection, SqlTransaction transaction, Player player)
+     {
+         string query = @"
+             DECLARE @nueva TABLE (id INT);
+ 
+-            INSERT INTO PERSONA (genero, fecha_de_nacimiento, Dni, nombre, apellido)
++            INSERT INTO PERSONAS (genero, fecha_de_nacimiento, Dni, nombre, apellido)
+             OUTPUT INSERTED.PK_id_persona INTO @nueva (id)
+             VALUES (@gender, @birthDate, @dni, @firstName, @lastName);
+ 
+diff -ruN a/DaoLibrary/RecaudacionDao.cs b/DaoLibrary/RecaudacionDao.cs
+--- a/DaoLibrary/RecaudacionDao.cs	2026-10-18 16:38:22.426478200 -0300
++++ b/DaoLibrary/RecaudacionDao.cs	2026-10-18 16:38:22.509603400 -0300
+@@ -93,7 +93,7 @@
+                 ISNULL(p.metodo_pago, '') AS medio_pago
+             FROM PAGOS p
+             JOIN JUGADORES j ON j.PK_id_jugador = p.FK_id_jugador
+-            JOIN PERSONA pe ON pe.PK_id_persona = j.FK_id_persona
++            JOIN PERSONAS pe ON pe.PK_id_persona = j.FK_id_persona
+             LEFT JOIN CATEGORIAS c ON c.PK_id_categoria = j.FK_id_categoria
+             WHERE p.estado = 1
+               AND YEAR(p.fecha_pago) = @anio
+diff -ruN a/DaoLibrary/SqlCuotaMensual.cs b/DaoLibrary/SqlCuotaMensual.cs
+--- a/DaoLibrary/SqlCuotaMensual.cs	2026-10-18 16:38:22.428478300 -0300
++++ b/DaoLibrary/SqlCuotaMensual.cs	2026-10-18 16:38:22.512118400 -0300
+@@ -7,7 +7,7 @@
+     // "a quién le corresponde la cuota de un mes y por cuánto" se define una sola vez.
+     internal static class SqlCuotaMensual
+     {
+-        // Arancel del jugador `j` (con su PERSONA `p`) para el mes que empieza en `primerDiaMes`. Un arancel
++        // Arancel del jugador `j` (con su PERSONAS `p`) para el mes que empieza en `primerDiaMes`. Un arancel
+         // cargado el 5 de enero cubre igual TODO enero: por eso se compara contra el último día del mes. Primero
+         // el arancel de la categoría del jugador; si no tiene, el de su género. Devuelve la columna `monto`.
+         public static string ArancelDelJugador(string primerDiaMes) => $@"
+@@ -47,7 +47,7 @@
+                 INSERT INTO PAGOS (FK_id_jugador, monto_base, FK_id_jugador_descuento, monto_final, fecha_pago, metodo_pago, fecha_vencimiento, estado)
+                 SELECT j.PK_id_jugador, arancel.monto, NULL, arancel.monto, NULL, NULL, @primerDiaMes, 0
+                 FROM JUGADORES j
+-                JOIN PERSONA p ON j.FK_id_persona = p.PK_id_persona
++                JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+                 CROSS APPLY ({ArancelDelJugador("@primerDiaMes")}) AS arancel
+                 WHERE (@genero IS NULL OR LTRIM(RTRIM(p.genero)) = @genero)
+                   AND (@idCategoria IS NULL OR j.FK_id_categoria = @idCategoria)
+diff -ruN a/DaoLibrary/UsuariosPortalDao.cs b/DaoLibrary/UsuariosPortalDao.cs
+--- a/DaoLibrary/UsuariosPortalDao.cs	2026-10-18 16:38:22.430477200 -0300
++++ b/DaoLibrary/UsuariosPortalDao.cs	2026-10-18 16:38:22.513121800 -0300
+@@ -17,13 +17,13 @@
+         {
+             var resultado = new List<UsuarioCandidato>();
+ 
+-            // password_hash IS NULL: nunca completó una activación, así que nunca tuvo
++            // contrasenia IS NULL: nunca completó una activación, así que nunca tuvo
+             // contraseña propia. A alguien que ya la tuvo (se deshabilitó después de estar
+             // activo) no le corresponde este flujo — ver ListarDeshabilitados/Reactivar.
+             const string query = @"
+                 SELECT PK_id_usuario, nombre, apellido, dni, email, FK_id_rol
+-                FROM USUARIO
+-                WHERE activo = 1 AND acceso_portal = 0 AND FK_id_rol IN (1, 2) AND password_hash IS NULL
++                FROM USUARIOS JOIN PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona
++                WHERE activo = 1 AND acceso_portal = 0 AND FK_id_rol IN (1, 2) AND rol_portal IS NULL
+                 ORDER BY apellido, nombre";
+ 
+             using SqlConnection conexion = SqlConnectionFactory.Open(_cadenaConexion);
+@@ -51,7 +51,7 @@
+ 
+             const string query = @"
+                 SELECT PK_id_usuario, nombre, apellido, dni, email, rol_portal, activo, activacion_pendiente
+-                FROM USUARIO
++                FROM USUARIOS JOIN PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona
+                 WHERE acceso_portal = 1
+                 ORDER BY apellido, nombre";
+ 
+@@ -80,13 +80,13 @@
+         {
+             var resultado = new List<UsuarioPortal>();
+ 
+-            // Ya tuvieron acceso alguna vez (tienen password_hash y un rol_portal de cuando
++            // Ya tuvieron acceso alguna vez (tienen contrasenia y un rol_portal de cuando
+             // estaban habilitados) — reactivarlos no necesita token ni mail nuevo, solo
+             // devolverles acceso_portal.
+             const string query = @"
+                 SELECT PK_id_usuario, nombre, apellido, dni, email, rol_portal, activo, activacion_pendiente
+-                FROM USUARIO
+-                WHERE activo = 1 AND acceso_portal = 0 AND password_hash IS NOT NULL AND rol_portal IS NOT NULL
++                FROM USUARIOS JOIN PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona
++                WHERE activo = 1 AND acceso_portal = 0 AND contrasenia IS NOT NULL AND rol_portal IS NOT NULL
+                 ORDER BY apellido, nombre";
+ 
+             using SqlConnection conexion = SqlConnectionFactory.Open(_cadenaConexion);
+@@ -121,9 +121,9 @@
+             if (rolPortal is not (1 or 2)) return false;
+ 
+             using var comando = new SqlCommand(
+-                @"UPDATE dbo.USUARIO SET acceso_portal = 1, rol_portal = @rol
++                @"UPDATE dbo.USUARIOS SET acceso_portal = 1, rol_portal = @rol
+                   WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0
+-                    AND password_hash IS NOT NULL AND rol_portal IS NOT NULL",
++                    AND contrasenia IS NOT NULL AND rol_portal IS NOT NULL",
+                 conexion, transaccion);
+             comando.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+             comando.Parameters.Add("@rol", SqlDbType.Int).Value = rolPortal;
+@@ -155,8 +155,8 @@
+             if (DniEnUsoPorOtraCuenta(conexion, transaccion, dniNormalizado, idUsuario)) return EditarCandidatoResultado.DniEnUso;
+ 
+             using var comando = new SqlCommand(
+-                @"UPDATE dbo.USUARIO SET nombre = @nombre, apellido = @apellido, dni = @dni
+-                  WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0",
++                @"UPDATE dbo.PERSONAS SET nombre = @nombre, apellido = @apellido, dni = @dni
++                  WHERE PK_id_persona = (SELECT FK_id_persona FROM dbo.USUARIOS WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0)",
+                 conexion, transaccion);
+             comando.Parameters.Add("@nombre", SqlDbType.NVarChar, 100).Value = nombre.Trim();
+             comando.Parameters.Add("@apellido", SqlDbType.NVarChar, 100).Value = apellido.Trim();
+@@ -170,8 +170,8 @@
+         private static bool DniEnUsoPorOtraCuenta(SqlConnection conexion, SqlTransaction transaccion, string dniNormalizado, int idExcluido)
+         {
+             using var buscar = new SqlCommand(
+-                $@"SELECT TOP (1) 1 FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK)
+-                   WHERE acceso_portal = 1 AND PK_id_usuario <> @id AND {AuthDao.DniNormalizadoSql} = @dni",
++                $@"SELECT TOP (1) 1 FROM dbo.PERSONAS WITH (UPDLOCK, HOLDLOCK)
++                   WHERE PK_id_persona <> ISNULL((SELECT FK_id_persona FROM dbo.USUARIOS WHERE PK_id_usuario = @id), 0) AND {AuthDao.DniNormalizadoSql} = @dni",
+                 conexion, transaccion);
+             buscar.Parameters.Add("@id", SqlDbType.Int).Value = idExcluido;
+             buscar.Parameters.Add("@dni", SqlDbType.NVarChar, 40).Value = dniNormalizado;
+@@ -195,7 +195,7 @@
+             string? email;
+             string? dni;
+             using (var buscar = new SqlCommand(
+-                "SELECT email, dni FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0",
++                "SELECT email, dni FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK) JOIN dbo.PERSONAS ON PERSONAS.PK_id_persona = USUARIOS.FK_id_persona WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0",
+                 conexion, transaccion))
+             {
+                 buscar.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+@@ -214,10 +214,9 @@
+             if (DniEnUsoPorOtraCuenta(conexion, transaccion, dniNormalizado, idUsuario)) return (HabilitarResultado.DniEnUso, null);
+ 
+             using var actualizar = new SqlCommand(
+-                @"UPDATE dbo.USUARIO SET acceso_portal = 1, rol_portal = @rol, activacion_pendiente = 1, dni = @dni
++                @"UPDATE dbo.USUARIOS SET acceso_portal = 1, rol_portal = @rol, activacion_pendiente = 1
+                   WHERE PK_id_usuario = @id AND activo = 1 AND acceso_portal = 0",
+                 conexion, transaccion);
+-            actualizar.Parameters.Add("@dni", SqlDbType.NVarChar, 40).Value = dniNormalizado;
+             actualizar.Parameters.Add("@rol", SqlDbType.Int).Value = rolPortal;
+             actualizar.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+             return actualizar.ExecuteNonQuery() == 1 ? (HabilitarResultado.Ok, email) : (HabilitarResultado.NoEncontrado, null);
+@@ -231,7 +230,7 @@
+             using var transaccion = conexion.BeginTransaction(IsolationLevel.Serializable);
+ 
+             using (var bloquear = new SqlCommand(
+-                "SELECT rol_portal FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND acceso_portal = 1",
++                "SELECT rol_portal FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND acceso_portal = 1",
+                 conexion, transaccion))
+             {
+                 bloquear.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+@@ -251,7 +250,7 @@
+             }
+ 
+             using (var actualizar = new SqlCommand(
+-                "UPDATE dbo.USUARIO SET rol_portal = @rol, token_version = token_version + 1 WHERE PK_id_usuario = @id AND acceso_portal = 1",
++                "UPDATE dbo.USUARIOS SET rol_portal = @rol, token_version = token_version + 1 WHERE PK_id_usuario = @id AND acceso_portal = 1",
+                 conexion, transaccion))
+             {
+                 actualizar.Parameters.Add("@rol", SqlDbType.Int).Value = nuevoRolPortal;
+@@ -273,7 +272,7 @@
+             using var transaccion = conexion.BeginTransaction(IsolationLevel.Serializable);
+ 
+             using (var bloquear = new SqlCommand(
+-                "SELECT rol_portal FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND acceso_portal = 1",
++                "SELECT rol_portal FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK) WHERE PK_id_usuario = @id AND acceso_portal = 1",
+                 conexion, transaccion))
+             {
+                 bloquear.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+@@ -293,7 +292,7 @@
+             }
+ 
+             using (var actualizar = new SqlCommand(
+-                "UPDATE dbo.USUARIO SET acceso_portal = 0, token_version = token_version + 1 WHERE PK_id_usuario = @id AND acceso_portal = 1",
++                "UPDATE dbo.USUARIOS SET acceso_portal = 0, token_version = token_version + 1 WHERE PK_id_usuario = @id AND acceso_portal = 1",
+                 conexion, transaccion))
+             {
+                 actualizar.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
+@@ -314,7 +313,7 @@
+         private static bool QuedaOtroSuperAdminHabilitado(SqlConnection conexion, SqlTransaction transaccion, int idUsuarioExcluido)
+         {
+             using var contar = new SqlCommand(
+-                @"SELECT COUNT(*) FROM dbo.USUARIO WITH (UPDLOCK, HOLDLOCK)
++                @"SELECT COUNT(*) FROM dbo.USUARIOS WITH (UPDLOCK, HOLDLOCK)
+                   WHERE rol_portal = 1 AND acceso_portal = 1 AND activo = 1 AND PK_id_usuario <> @id",
+                 conexion, transaccion);
+             contar.Parameters.Add("@id", SqlDbType.Int).Value = idUsuarioExcluido;
+diff -ruN a/EntityLibrary/Discount.cs b/EntityLibrary/Discount.cs
+--- a/EntityLibrary/Discount.cs	2026-10-18 16:38:22.434162300 -0300
++++ b/EntityLibrary/Discount.cs	2026-10-18 16:38:22.517637000 -0300
+@@ -51,7 +51,7 @@
+         set { type = value; }
+     }
+ 
+-    // Id of the row in TIPO_DESCUENTO. Since HU-011 that table is a closed
++    // Id of the row in TIPOS_DESCUENTO. Since HU-011 that table is a closed
+     // catalogue of reasons, so this is what ties an assignment to its reason.
+     public long TypeId
+     {
+diff -ruN a/EntityLibrary/DiscountType.cs b/EntityLibrary/DiscountType.cs
+--- a/EntityLibrary/DiscountType.cs	2026-10-18 16:38:22.435166700 -0300
++++ b/EntityLibrary/DiscountType.cs	2026-10-18 16:38:22.518638800 -0300
+@@ -1,6 +1,6 @@
+ namespace EntityLibrary;
+ 
+-// A row of the TIPO_DESCUENTO catalogue: the reason a benefit is granted for.
++// A row of the TIPOS_DESCUENTO catalogue: the reason a benefit is granted for.
+ // Since HU-011 the catalogue is closed and holds no value of its own, so the
+ // amount and the validity of each grant live with the assignment instead.
+ public class DiscountType
+diff -ruN a/EntityLibrary/Generos.cs b/EntityLibrary/Generos.cs
+--- a/EntityLibrary/Generos.cs	2026-10-18 16:38:22.437171300 -0300
++++ b/EntityLibrary/Generos.cs	2026-10-18 16:38:22.521146000 -0300
+@@ -1,6 +1,6 @@
+ namespace EntityLibrary
+ {
+-    // Los dos géneros del padrón (PERSONA.genero). El arancel por género y la inscripción (solo rama masculina)
++    // Los dos géneros del padrón (PERSONAS.genero). El arancel por género y la inscripción (solo rama masculina)
+     // dependen de estos valores exactos.
+     public static class Generos
+     {
+diff -ruN a/EntityLibrary/JugadorResumen.cs b/EntityLibrary/JugadorResumen.cs
+--- a/EntityLibrary/JugadorResumen.cs	2026-10-18 16:38:22.438169200 -0300
++++ b/EntityLibrary/JugadorResumen.cs	2026-10-18 16:38:22.522151300 -0300
+@@ -1,6 +1,6 @@
+ namespace EntityLibrary
+ {
+-    // Proyección liviana de JUGADORES + PERSONA + CATEGORIAS para listados y buscadores.
++    // Proyección liviana de JUGADORES + PERSONAS + CATEGORIAS para listados y buscadores.
+     public class JugadorResumen
+     {
+         public int IdJugador { get; set; }
+@@ -8,7 +8,7 @@
+         public string Apellido { get; set; } = string.Empty;
+         public string Dni { get; set; } = string.Empty;
+         public string Categoria { get; set; } = string.Empty;
+-        public string Genero { get; set; } = string.Empty; // PERSONA.genero: "Masculino" | "Femenino"
++        public string Genero { get; set; } = string.Empty; // PERSONAS.genero: "Masculino" | "Femenino"
+         public DateTime? FechaAlta { get; set; }
+         // null = activo. Con fecha, el jugador dejó el club y no se le emiten cuotas después de ese mes.
+         public DateTime? FechaBaja { get; set; }
+diff -ruN a/EntityLibrary/Player.cs b/EntityLibrary/Player.cs
+--- a/EntityLibrary/Player.cs	2026-10-18 16:38:22.439167900 -0300
++++ b/EntityLibrary/Player.cs	2026-10-18 16:38:22.523153800 -0300
+@@ -1,6 +1,6 @@
+ namespace EntityLibrary;
+ 
+-// A player as registered on the club: the PERSONA row plus the JUGADORES row (HU-033)
++// A player as registered on the club: the PERSONAS row plus the JUGADORES row (HU-033)
+ public class Player
+ {
+     private long id = 0;
+@@ -42,7 +42,7 @@
+         set { birthDate = value; }
+     }
+ 
+-    // "Masculino" | "Femenino", the values PERSONA.genero and ARANCELES already use
++    // "Masculino" | "Femenino", the values PERSONAS.genero and ARANCELES already use
+     public string Gender
+     {
+         get { return gender; }
+diff -ruN a/EntityLibrary/Usuario.cs b/EntityLibrary/Usuario.cs
+--- a/EntityLibrary/Usuario.cs	2026-10-18 16:38:22.443040300 -0300
++++ b/EntityLibrary/Usuario.cs	2026-10-18 16:38:22.526663700 -0300
+@@ -11,5 +11,9 @@
+         public int TokenVersion { get; set; }
+         public bool AccesoPortal { get; set; }
+         public int? RolPortal { get; set; }
++        // Portal Deportivo: rol de ROLES (FK_id_rol) y categorias del staff. Van en el token para que el Deportivo autorice.
++        public int? IdRolDeportivo { get; set; }
++        public string? NombreRolDeportivo { get; set; }
++        public List<int> IdsCategorias { get; set; } = new();
+     }
+ }

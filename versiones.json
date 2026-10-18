@@ -1,0 +1,16 @@
+{
+  "descripcion": "Versiones de cada repo contra las que se probaron los parches. Si aplican mal, alguno cambio.",
+  "nuestro": {
+    "repo": "Atzur1/Sistema-Administrativo---CACC",
+    "rama": "feat/paleta-avisos-azul",
+    "commit": "880fcf4",
+    "nota": "Estado del arbol de trabajo el 2026-10-17 (HEAD al inicio de la sesion). Confirmar con git log."
+  },
+  "ellos": {
+    "repo": "NejoCHZ/App-Club-Atletico-Camioneros",
+    "rama": "main",
+    "commit": "afa4e60",
+    "nota": "Ultimo commit de main al 2026-10-15 (LucasTalleres, 'Implementacion QR y vista mobile')."
+  },
+  "base": "ClubCamionerosUnificadaV2 (script del 2026-10-18)"
+}

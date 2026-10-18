@@ -1,0 +1,16 @@
+# Carpeta de trabajo que genera scripts/armar.ps1 (copias de los repos, logs, configuracion con claves)
+trabajo/
+*.log
+log_*.txt
+resultado.txt
+
+# Nunca versionar configuracion local ni secretos
+appsettings.Development.json
+appsettings.Local.json
+*.user
+.env
+
+# Compilados
+bin/
+obj/
+.vs/

@@ -1,0 +1,2 @@
+# Los parches se comparan byte a byte: git no debe tocar sus saltos de linea.
+*.patch -text
