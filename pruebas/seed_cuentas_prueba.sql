@@ -1,4 +1,4 @@
-﻿SET NOCOUNT ON; SET QUOTED_IDENTIFIER ON;
+SET NOCOUNT ON; SET QUOTED_IDENTIFIER ON;
 DECLARE @h varchar(255) = '$2a$12$gW.EMuN8Qg3OKOM/4a9wZ.GzqA.UbaETE.dc2h.pLM4IqiMgPH1qe';
 -- DNI 20111222 SuperAdmin del Administrativo
 INSERT PERSONAS(nombre,apellido,dni) VALUES (N'Super',N'Admin Prueba','20111222');
@@ -15,4 +15,6 @@ INSERT STAFF(FK_id_usuario) VALUES (@u); INSERT STAFF_CATEGORIAS(FK_id_staff,FK_
 INSERT PERSONAS(nombre,apellido,dni) VALUES (N'Ana',N'Administrativa','30000002');
 INSERT USUARIOS(FK_id_persona,FK_id_rol,email,contrasenia,activo) VALUES (SCOPE_IDENTITY(),2,'ana.prueba@ejemplo.com',NULL,1);
 SELECT 'usuarios='+CAST(COUNT(*) AS varchar) FROM USUARIOS;
-
+-- DNI 30000005 Administrador (rol de portal 2) ya habilitado y con contrasena: lo necesitan las pruebas del proyecto del Administrativo (dotnet test)
+INSERT PERSONAS(nombre,apellido,dni) VALUES (N'Bruno',N'Administrador','30000005');
+INSERT USUARIOS(FK_id_persona,FK_id_rol,email,contrasenia,activo,acceso_portal,rol_portal,activacion_pendiente) VALUES (SCOPE_IDENTITY(),2,'bruno.prueba@ejemplo.com',@h,1,1,2,0);

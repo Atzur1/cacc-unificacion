@@ -29,6 +29,11 @@ Requisitos: .NET SDK 9, `sqlcmd`, Git para Windows (se usa su `patch.exe`) y SQL
    ```
 4. Frenar las APIs: `.\scripts\detener.ps1`.
 
+Las pruebas del proyecto del Administrativo (`ApiGestion.Tests`, 415) contra la base unificada:
+```powershell
+.\scripts\pruebas-del-proyecto.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC"
+```
+
 Los repos originales **no se modifican**: todo ocurre en `trabajo/` (ignorada por git) y en la base `ClubCamionerosUnificadaV2_Prueba`.
 
 ## Cómo leer el resultado
