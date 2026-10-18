@@ -1,18 +1,68 @@
+diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/JugadoresController.cs
+--- a/CACC.API/Controllers/JugadoresController.cs	2026-10-18 17:36:49.324208500 -0300
++++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 17:36:49.441238600 -0300
+@@ -205,6 +205,16 @@
+                 return BadRequest(new { message = "El nombre y el DNI son obligatorios." });
+             }
+ 
++            // De estos dos datos sale el arancel que se le cobra al jugador: la base tambien los exige.
++            if (dto.Genero != "Masculino" && dto.Genero != "Femenino")
++            {
++                return BadRequest(new { message = "El género es obligatorio (Masculino o Femenino): sin él no se sabe qué arancel cobrarle." });
++            }
++            if (!int.TryParse(dto.Categoria, out int idCategoria) || idCategoria <= 0)
++            {
++                return BadRequest(new { message = "La categoría es obligatoria." });
++            }
++
+             try
+             {
+                 var jugadorAlta = new JugadorAlta
+@@ -213,6 +223,7 @@
+                     Nombre = dto.Nombre,
+                     Apellido = dto.Apellido,
+                     FechaNacimiento = dto.FechaNacimiento,
++                    Genero = dto.Genero,
+                     Categoria = dto.Categoria,
+                     Posicion = dto.Posicion,
+                     ClubOrigen = dto.ClubOrigen,
+diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.cs
+--- a/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 17:36:49.309026000 -0300
++++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 17:36:49.425018900 -0300
+@@ -16,6 +16,11 @@
+         [JsonPropertyName("fechaNacimiento")]
+         public DateTime? FechaNacimiento { get; set; }
+ 
++        // Masculino o Femenino. Obligatorio: de el sale el arancel que se le cobra al jugador.
++        [JsonPropertyName("genero")]
++        public string Genero { get; set; } = string.Empty;
++
++        // Obligatoria: sin categoria el jugador no figura en los listados de deuda del Portal Administrativo.
+         [JsonPropertyName("categoria")]
+         public string Categoria { get; set; } = string.Empty;
+ 
 diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
---- a/CACC.DAO/JugadorDao.cs	2026-10-18 16:29:21.894830400 -0300
-+++ b/CACC.DAO/JugadorDao.cs	2026-10-18 16:29:22.165531800 -0300
-@@ -405,9 +405,7 @@
+--- a/CACC.DAO/JugadorDao.cs	2026-10-18 17:36:49.306023700 -0300
++++ b/CACC.DAO/JugadorDao.cs	2026-10-18 17:36:49.442246200 -0300
+@@ -405,15 +405,14 @@
              try
              {
                  var queryPersona = @"
 -                    INSERT INTO PERSONAS (nombre, apellido, dni, fecha_de_nacimiento)
 -                    OUTPUT INSERTED.PK_id_persona
 -                    VALUES (@Nombre, @Apellido, @Dni, @FechaNacimiento);";
-+                    DECLARE @nuevo TABLE (id INT); INSERT INTO PERSONAS (nombre, apellido, dni, fecha_de_nacimiento) OUTPUT INSERTED.PK_id_persona INTO @nuevo VALUES (@Nombre, @Apellido, @Dni, @FechaNacimiento); SELECT id FROM @nuevo;";
++                    DECLARE @nuevo TABLE (id INT); INSERT INTO PERSONAS (nombre, apellido, dni, fecha_de_nacimiento, genero) OUTPUT INSERTED.PK_id_persona INTO @nuevo VALUES (@Nombre, @Apellido, @Dni, @FechaNacimiento, @Genero); SELECT id FROM @nuevo;";
  
                  using var cmdPersona = new SqlCommand(queryPersona, connection, transaction);
                  cmdPersona.Parameters.AddWithValue("@Nombre", dto.Nombre);
-@@ -421,9 +419,7 @@
+                 cmdPersona.Parameters.AddWithValue("@Apellido", dto.Apellido);
+                 cmdPersona.Parameters.AddWithValue("@Dni", dto.Dni);
+                 cmdPersona.Parameters.AddWithValue("@FechaNacimiento", dto.FechaNacimiento ?? (object)DBNull.Value);
++                cmdPersona.Parameters.AddWithValue("@Genero", dto.Genero);
+ 
+                 int idPersona = Convert.ToInt32(await cmdPersona.ExecuteScalarAsync());
+ 
+@@ -421,9 +420,7 @@
                  if (!string.IsNullOrEmpty(dto.Categoria)) int.TryParse(dto.Categoria, out idCategoria);
  
                  var queryJugador = @"
@@ -23,7 +73,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
  
                  using var cmdJugador = new SqlCommand(queryJugador, connection, transaction);
                  cmdJugador.Parameters.AddWithValue("@IdPersona", idPersona);
-@@ -482,9 +478,7 @@
+@@ -482,9 +479,7 @@
                      else
                      {
                          var queryInsertPersonaTutor = @"
@@ -34,7 +84,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          using var cmdInsertPersonaTutor = new SqlCommand(queryInsertPersonaTutor, connection, transaction);
                          cmdInsertPersonaTutor.Parameters.AddWithValue("@TutorNombre", dto.Tutor.Nombre.Trim());
                          cmdInsertPersonaTutor.Parameters.AddWithValue("@TutorApellido", dto.Tutor.Apellido.Trim());
-@@ -518,8 +512,8 @@
+@@ -518,8 +513,8 @@
                          int idResponsableMax = Convert.ToInt32(await cmdMaxResp.ExecuteScalarAsync());
  
                          var queryInsertResp = @"
@@ -45,7 +95,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          using var cmdInsertResp = new SqlCommand(queryInsertResp, connection, transaction);
                          cmdInsertResp.Parameters.AddWithValue("@IdResponsable", idResponsableMax);
                          cmdInsertResp.Parameters.AddWithValue("@IdPersonaTutor", idPersonaTutor);
-@@ -535,8 +529,8 @@
+@@ -535,8 +530,8 @@
                      int idVinculo = Convert.ToInt32(await cmdMaxVinculo.ExecuteScalarAsync());
  
                      var queryInsertVinculo = @"
@@ -56,7 +106,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                      using var cmdInsertVinculo = new SqlCommand(queryInsertVinculo, connection, transaction);
                      cmdInsertVinculo.Parameters.AddWithValue("@IdVinculo", idVinculo);
                      cmdInsertVinculo.Parameters.AddWithValue("@IdJugador", idJugador);
-@@ -719,9 +713,7 @@
+@@ -719,9 +714,7 @@
                      else
                      {
                          const string queryInP = @"
@@ -67,7 +117,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          using var cmdInP = new SqlCommand(queryInP, connection, transaction);
                          cmdInP.Parameters.AddWithValue("@Nombre", nombre.Trim());
                          cmdInP.Parameters.AddWithValue("@Apellido", apellido.Trim());
-@@ -757,8 +749,8 @@
+@@ -757,8 +750,8 @@
                          }
  
                          const string queryInR = @"
@@ -78,7 +128,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          using var cmdInR = new SqlCommand(queryInR, connection, transaction);
                          cmdInR.Parameters.AddWithValue("@IdResp", nextRespId);
                          cmdInR.Parameters.AddWithValue("@IdPersona", idPersonaTutor);
-@@ -799,8 +791,8 @@
+@@ -799,8 +792,8 @@
                          }
  
                          const string queryInV = @"
@@ -89,3 +139,14 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          using var cmdInV = new SqlCommand(queryInV, connection, transaction);
                          cmdInV.Parameters.AddWithValue("@IdVinculo", nextVinculoId);
                          cmdInV.Parameters.AddWithValue("@IdResp", idResponsable);
+diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
+--- a/CACC.Entities/JugadorAlta.cs	2026-10-18 17:36:49.326209300 -0300
++++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 17:36:49.427018000 -0300
+@@ -6,6 +6,7 @@
+         public string Nombre { get; set; } = string.Empty;
+         public string Apellido { get; set; } = string.Empty;
+         public DateTime? FechaNacimiento { get; set; }
++        public string Genero { get; set; } = string.Empty;
+         public string Categoria { get; set; } = string.Empty;
+         public string? Posicion { get; set; }
+         public string? ClubOrigen { get; set; }

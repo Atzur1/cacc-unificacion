@@ -5,6 +5,7 @@
 - **Un solo login: el del Administrativo** (por DNI), con un token que aceptan las dos APIs. Contraseña única (`USUARIOS.contrasenia`, BCrypt).
 - **El Administrador (rol de portal 2) solo usa el Portal Administrativo**: tareas contables, deudores, becas y descuentos. Sin pantalla de portales y sin acceso al Deportivo.
 - **Estado de deuda para el Deportivo: por API del Administrativo** (por DNI y por lote). Hasta entonces, la vista puente `VISTA_ESTADO_DEUDA`.
+- **Género y categoría son obligatorios para todo jugador** (de ellos sale el arancel que se le cobra). Lo exige el formulario y el servidor del Deportivo, y la base rechaza el alta si falta alguno (`V20261018_02`), venga de donde venga. Para el resto de las personas (personal, tutores) el género es libre.
 - **Altas**: las hace el Deportivo. El Administrativo solo habilita acceso a personas ya cargadas.
 - **Jugadores no se borran**: baja con `fecha_baja`. El reingreso conserva el historial en `JUGADORES_PERIODOS`; `fecha_alta` es la del último reingreso.
 - **Inscripción por género**: las mujeres hoy no pagan inscripción (monto 0) y la cuota femenina es otro arancel; debe poder cambiarse desde la pantalla de aranceles.
@@ -12,7 +13,7 @@
 
 # Pendiente
 1. Llevar `parches/nuestro.patch` a una rama del repo real, actualizar sus pruebas y apuntar sus configuraciones a la base unificada.
-2. ~~API de estado de deuda (por DNI y por lote)~~ Hecha (docs/api-estado-deuda.md, rama feat/base-unificada). Aviso de "jugadores sin género" en el Resumen General: hecho (GET api/jugadores-sin-genero, solo SuperAdmin).
+2. ~~API de estado de deuda (por DNI y por lote)~~ Hecha (docs/api-estado-deuda.md, rama feat/base-unificada). El aviso de "jugadores sin género" se descartó: la base ya no deja cargar un jugador sin género o sin categoría.
 3. ~~Inscripción por género~~ Hecha (migración `V20261018_01__inscripcion_por_genero`, rama feat/base-unificada). Falta `inicio_cobranza` en el código del Administrativo.
 4. ~~Que el token del Administrador (rol 2) no lleve permisos del Deportivo.~~ Hecho (ClaimsDelToken, rama feat/base-unificada).
 5. Parche definitivo para el Deportivo (`hallazgos-otro-equipo.md`).

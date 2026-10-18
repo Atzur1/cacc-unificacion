@@ -88,18 +88,17 @@ $r = Call 'GET' "$B/api/categorias/5/jugadores" $TD; Chk 'Permisos' 'el DT no le
 Write-Host '--- 2. Flujo: alta en el Deportivo -> cuota y cobro en el Administrativo -> QR' -ForegroundColor Cyan
 $r = Call 'POST' "$A/api/aranceles/programar" $T @{ genero = 'Masculino'; monto = 85000; vigenteDesde = (& $f $hoy) }; Chk 'Flujo' 'arancel masculino programado' ($r.s -eq 200) "HTTP $($r.s) $($r.b)"
 $r = Call 'POST' "$A/api/aranceles/programar" $T @{ genero = 'Femenino'; monto = 70000; vigenteDesde = (& $f $hoy) }; Chk 'Flujo' 'arancel femenino programado' ($r.s -eq 200) "HTTP $($r.s)"
-$alta = @{ dni = '41000001'; nombre = 'Juan'; apellido = 'Perez'; fechaNacimiento = '2010-05-05'; categoria = '3'; posicion = 'Delantero'; clubOrigen = 'Club X'; aptoFisico = $true
+$alta = @{ dni = '41000001'; nombre = 'Juan'; apellido = 'Perez'; fechaNacimiento = '2010-05-05'; genero = 'Masculino'; categoria = '3'; posicion = 'Delantero'; clubOrigen = 'Club X'; aptoFisico = $true
     tutor = @{ dni = '20000001'; nombre = 'Marta'; apellido = 'Perez'; telefono = '3511234567'; email = 'marta@ejemplo.com'; parentesco = 'Madre' } }
 $r = Call 'POST' "$B/api/jugadores" $T $alta; Chk 'Flujo' 'el Deportivo da de alta un jugador con tutor' ($r.s -in 200, 201) "HTTP $($r.s) $($r.b)"
 $id = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona = j.FK_id_persona WHERE p.dni = '41000001'")
 Chk 'Flujo' 'quedan creados jugador, historial de permanencia y vinculo con el tutor' ($id -gt 0 -and (SQ "SELECT CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id) AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES_RESPONSABLES WHERE FK_id_jugador=$id) AS varchar)") -eq '1/1') "jugador #$id"
 $r = Call 'GET' "$A/api/players/search?term=41000001" $T; Chk 'Flujo' 'el Administrativo encuentra al jugador cargado por el Deportivo' ($r.s -eq 200 -and $r.b -match 'Perez') "HTTP $($r.s)"
-Gap 'Flujo' 'el alta del Deportivo guarda el genero (sin genero no hay cuota)' ((SQ "SELECT genero FROM PERSONAS WHERE dni='41000001'") -notmatch 'NULL') "genero=$(SQ "SELECT ISNULL(genero,'NULL') FROM PERSONAS WHERE dni='41000001'")"
-$r = Call 'GET' "$A/api/jugadores-sin-genero" $T; $g = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
-Chk 'SinGenero' 'el aviso del Resumen General lista al jugador cargado sin genero' ($r.s -eq 200 -and $g.total -ge 1 -and @($g.jugadores | Where-Object { $_.dni -eq '41000001' }).Count -eq 1) "HTTP $($r.s) total=$($g.total)"
-SQ "UPDATE PERSONAS SET genero='Masculino' WHERE dni='41000001'" | Out-Null   # lo que haria el formulario corregido
-$r = Call 'GET' "$A/api/jugadores-sin-genero" $T; $g = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
-Chk 'SinGenero' 'con el genero cargado el jugador deja de figurar en el aviso' ($r.s -eq 200 -and @($g.jugadores | Where-Object { $_.dni -eq '41000001' }).Count -eq 0) "HTTP $($r.s) total=$($g.total)"
+Chk 'Flujo' 'el alta del Deportivo guarda el genero y la categoria' ((SQ "SELECT genero+'/'+CAST(FK_id_categoria AS varchar) FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000001'") -eq 'Masculino/3') ''
+# Genero y categoria son obligatorios: el servidor del Deportivo los exige (y la base los rechaza si faltan, venga de donde venga).
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000010'; nombre = 'Sin'; apellido = 'Genero'; fechaNacimiento = '2012-01-01'; categoria = '3' }; Chk 'Obligatorios' 'el Deportivo rechaza un alta sin genero' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000011'; nombre = 'Sin'; apellido = 'Categoria'; fechaNacimiento = '2012-01-01'; genero = 'Masculino' }; Chk 'Obligatorios' 'el Deportivo rechaza un alta sin categoria' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
+Chk 'Obligatorios' 'ninguna de las altas incompletas dejo una persona o un jugador en la base' ((SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni IN ('41000010','41000011')") -eq '0') ''
 ReiniciarNuestro   # el generador de cuotas corre al iniciar y cada 6 horas
 $T = Login '20111222'
 $cuotas = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id AND concepto='Cuota' AND fecha_vencimiento='$(& $f $ultimo)' AND estado=0 AND monto_final=85000")
@@ -186,7 +185,6 @@ $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja e
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
 $r = Call 'POST' "$A/api/enrollmentfees" $TA @{ gender = 'Femenino'; amount = 1; startDate = (& $f $hoy.AddDays(5)) }; Chk 'Inscripcion' 'el Administrador (rol 2) no programa aranceles de inscripcion: 403' ($r.s -eq 403) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/jugadores-sin-genero" $TA; Chk 'SinGenero' 'el aviso de genero es solo del SuperAdmin: el Administrador (rol 2) recibe 403' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Administrador (rol 2) no consulta el estado deportivo: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
 Chk 'Cuentas' 'el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)

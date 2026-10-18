@@ -52,4 +52,59 @@ SELECT 'T11 cuenta nueva: acceso_portal='+CAST((SELECT acceso_portal FROM USUARI
 INSERT ARANCELES(FK_id_categoria,monto,vigente_desde) VALUES (3,100,'2026-10-01');
 BEGIN TRY DELETE FROM CATEGORIAS WHERE PK_id_categoria=3; PRINT 'T12 FALLO: borro categoria con arancel'; END TRY BEGIN CATCH PRINT 'T12 ok: no se puede borrar una categoria con arancel o jugadores'; END CATCH
 ROLLBACK;
-
+GO
+-- Genero y categoria obligatorios (cada caso en su propia transaccion: un THROW de trigger la deja inutilizable)
+SET NOCOUNT ON;
+BEGIN TRY
+    BEGIN TRAN;
+    INSERT PERSONAS(nombre,apellido,dni,genero) VALUES (N'G',N'SinCat','91000101','Masculino');
+    INSERT JUGADORES(FK_id_persona,FK_id_categoria) VALUES (SCOPE_IDENTITY(),NULL);
+    PRINT 'T13 FALLO: dejo cargar un jugador sin categoria';
+    ROLLBACK;
+END TRY
+BEGIN CATCH
+    PRINT 'T13 ok: un jugador sin categoria se rechaza';
+    IF @@TRANCOUNT>0 ROLLBACK;
+END CATCH
+GO
+SET NOCOUNT ON;
+BEGIN TRY
+    BEGIN TRAN;
+    INSERT PERSONAS(nombre,apellido,dni) VALUES (N'G',N'SinGen','91000102');
+    INSERT JUGADORES(FK_id_persona,FK_id_categoria) VALUES (SCOPE_IDENTITY(),3);
+    PRINT 'T14 FALLO: dejo cargar un jugador sin genero';
+    ROLLBACK;
+END TRY
+BEGIN CATCH
+    PRINT 'T14 ok: un jugador sin genero se rechaza';
+    IF @@TRANCOUNT>0 ROLLBACK;
+END CATCH
+GO
+SET NOCOUNT ON;
+BEGIN TRY
+    BEGIN TRAN;
+    INSERT PERSONAS(nombre,apellido,dni,genero) VALUES (N'G',N'Quitar','91000103','Femenino');
+    DECLARE @p INT = SCOPE_IDENTITY();
+    INSERT JUGADORES(FK_id_persona,FK_id_categoria) VALUES (@p,3);
+    UPDATE PERSONAS SET genero = NULL WHERE PK_id_persona = @p;
+    PRINT 'T15 FALLO: dejo sin genero a una persona que es jugador';
+    ROLLBACK;
+END TRY
+BEGIN CATCH
+    PRINT 'T15 ok: no se le quita el genero a un jugador';
+    IF @@TRANCOUNT>0 ROLLBACK;
+END CATCH
+GO
+SET NOCOUNT ON;
+BEGIN TRY
+    BEGIN TRAN;
+    INSERT PERSONAS(nombre,apellido,dni,genero) VALUES (N'S',N'Personal','91000104',N'No especificado');
+    UPDATE PERSONAS SET genero = NULL WHERE dni = '91000104';
+    PRINT 'T16 ok: el personal (que no es jugador) puede tener cualquier genero';
+    ROLLBACK;
+END TRY
+BEGIN CATCH
+    PRINT 'T16 FALLO: ' + ERROR_MESSAGE();
+    IF @@TRANCOUNT>0 ROLLBACK;
+END CATCH
+GO
