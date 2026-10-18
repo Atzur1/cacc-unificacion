@@ -1,7 +1,9 @@
 # Hallazgos en el código del Portal Deportivo (main del 15/10, commit afa4e60)
 
-Probado contra la base unificada con `scripts/probar.ps1`. Los puntos marcados **GAP** en esa prueba corresponden a esta lista.
-Todo está en su repo; la base ya está preparada para recibir cada arreglo.
+Probado contra la base unificada con `scripts/probar.ps1`.
+
+**Estado: los 10 puntos están resueltos en `parches/ellos-definitivo.patch` y `parches/ellos-definitivo-frontend.patch`** (ver `parche-deportivo.md`):
+`probar.ps1` ya no tiene ningún GAP pendiente. La tabla queda como registro de qué se encontró y por qué.
 
 | # | Problema | Dónde | Arreglo |
 |---|---|---|---|
@@ -16,5 +18,4 @@ Todo está en su repo; la base ya está preparada para recibir cada arreglo.
 | 9 | Tiene login propio (`api/auth/login`). | `AuthController.cs` y pantalla de login | Dejar de usarlo: el login es el del Administrativo. Misma clave/emisor/audiencia JWT, desde variables de entorno. |
 | 10 | `UserScopeService` trata el rol 2 ("Administrativo") como lector de jugadores. El Administrador **solo usa el Portal Administrativo**. | `Authorization/UserScopeService.cs` | Quitar el rol 2. |
 
-Además, el QR (`AsistenciaDao.ProcesarIngresoAsync`) lee `VISTA_ESTADO_DEUDA`. Mientras exista la vista puente no hay que cambiar nada
-más allá del punto 4; más adelante puede pasar a consultar la API de estado de deuda del Administrativo.
+El QR ya no lee `VISTA_ESTADO_DEUDA`: consulta la API de estado de deuda del Administrativo (la vista puente queda solo como control de paridad).

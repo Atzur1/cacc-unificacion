@@ -117,12 +117,12 @@ $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '4100000
 Chk 'QR' 'tras el cobro queda 1 vencida: permitido (solo entrenamientos)' ($j.cuotasVencidas -eq 1 -and $j.accesoPermitido) "vencidas=$($j.cuotasVencidas) deuda=$($j.deudaTotal) $($j.mensaje)"
 $r = Call 'POST' "$A/api/jugadores/$id/baja" $T @{ fecha = (& $f $hoy) }; Chk 'Flujo' 'baja del jugador desde el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 Chk 'Flujo' 'la baja marca activo=0 y cierra el periodo de permanencia' ((SQ "SELECT CAST(activo AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id AND fecha_baja IS NOT NULL) AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq '0/1') ''
-$r = Call 'GET' "$B/api/jugadores" $T; Gap 'Bajas' 'el listado del Deportivo no muestra a los jugadores dados de baja' ($r.b -notmatch '41000001') "HTTP $($r.s)"
+$r = Call 'GET' "$B/api/jugadores" $T; Chk 'Bajas' 'el listado del Deportivo no muestra a los jugadores dados de baja' ($r.b -notmatch '41000001') "HTTP $($r.s)"
 SQ "DELETE FROM ASISTENCIAS WHERE FK_id_jugador=$id" | Out-Null
-$r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json; Gap 'Bajas' 'el QR no deja entrar a un jugador dado de baja' (-not $j.accesoPermitido) "accesoPermitido=$($j.accesoPermitido) $($j.mensaje)"
+$r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json; Chk 'Bajas' 'el QR no deja entrar a un jugador dado de baja' (-not $j.accesoPermitido) "accesoPermitido=$($j.accesoPermitido) $($j.mensaje)"
 $r = Call 'POST' "$A/api/jugadores/$id/reactivar" $T; Chk 'Flujo' 'reingreso desde el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 Chk 'Flujo' 'el reingreso abre un periodo nuevo y conserva el anterior' ((SQ "SELECT CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id) AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id AND fecha_baja IS NULL) AS varchar)") -eq '2/1') ''
-Gap 'Auditoria' 'lo que escribe el Deportivo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='JUGADORES' AND accion='INSERT' AND id_entidad='$id' AND id_usuario IS NOT NULL") -ge 1) 'alta de jugador por el Deportivo'
+Chk 'Auditoria' 'lo que escribe el Deportivo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='JUGADORES' AND accion='INSERT' AND id_entidad='$id' AND id_usuario IS NOT NULL") -ge 1) 'alta de jugador por el Deportivo'
 Chk 'Auditoria' 'lo que escribe el Administrativo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='PAGOS' AND accion='UPDATE' AND id_usuario IS NOT NULL") -ge 1) 'cobro'
 
 # ================= 2b. API DE ESTADO DE DEUDA (la fuente que el Deportivo va a consultar)
@@ -189,12 +189,42 @@ $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Ad
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
 Chk 'Cuentas' 'el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)
 
+# ================= 6. PARCHE DEFINITIVO DEL DEPORTIVO
+Write-Host '--- 6. Deportivo: parche definitivo' -ForegroundColor Cyan
+$T = Login '20111222'
+function DetenerNuestro { Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'ApiGestion\.(csproj|dll|exe)' -and $_.Name -match '^(dotnet|ApiGestion)(\.exe)?$' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep 3 }
+function EstadoCuotaListado($tok) { $r = Call 'GET' "$B/api/jugadores" $tok; if ($r.s -ne 200) { return "HTTP $($r.s)" }; foreach ($i in ($r.b | ConvertFrom-Json)) { if ($i.dni -eq '41000001') { return [string]$i.estadoCuota } }; return 'no figura' }
+Chk 'Deportivo' 'el listado muestra el estado de cuota que informa el Administrativo' ((EstadoCuotaListado $T) -eq 'PENDIENTE') (EstadoCuotaListado $T)
+$r = Call 'GET' "$B/api/jugadores/$id" $T; Chk 'Deportivo' 'la ficha del jugador tambien' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).estadoCuota -eq 'PENDIENTE') "HTTP $($r.s)"
+$edicion = @{ nombre = 'Juan'; apellido = 'Perez'; dni = '41000001'; fechaNacimiento = '2010-05-05' }
+$r = Call 'PUT' "$B/api/jugadores/$id" $T ($edicion + @{ genero = 'Otro' }); Chk 'Obligatorios' 'editar un jugador con un genero invalido: 400' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
+$r = Call 'PUT' "$B/api/jugadores/$id" $T $edicion; Chk 'Obligatorios' 'editar un jugador sin tocar el genero lo conserva' ($r.s -eq 200 -and (SQ "SELECT p.genero FROM PERSONAS p JOIN JUGADORES j ON j.FK_id_persona=p.PK_id_persona WHERE j.PK_id_jugador=$id") -eq 'Masculino') "HTTP $($r.s) $($r.b)"
+Chk 'Auditoria' 'una edicion hecha por el Deportivo queda con responsable' ([int](SQ "SELECT COUNT(*) FROM AUDITORIA_CAMBIOS WHERE entidad='PERSONAS' AND accion='UPDATE' AND id_usuario IS NOT NULL") -ge 1) ''
+$r = Call 'DELETE' "$B/api/categorias/3" $T; Chk 'Categorias' 'una categoria con jugadores no se borra: 409' ($r.s -eq 409 -and $r.b -match 'jugador') "HTTP $($r.s) $($r.b)"
+Chk 'Categorias' 'la categoria sigue existiendo y el jugador conserva la suya' ((SQ "SELECT CAST(FK_id_categoria AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq '3') ''
+$r = Call 'POST' "$B/api/auth/login" $null @{ email = '20111222'; password = $PW }; Chk 'Login' 'el login propio del Deportivo esta apagado: 410' ($r.s -eq 410) "HTTP $($r.s)"
+SQ "DELETE FROM ASISTENCIAS WHERE FK_id_jugador=$id" | Out-Null
+DetenerNuestro
+$r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'QR' 'si el Administrativo no responde, un jugador activo pasa marcado SIN_VERIFICAR' ($r.s -eq 200 -and $j.accesoPermitido -and -not $j.verificado -and (SQ "SELECT TOP 1 estado_acceso FROM ASISTENCIAS WHERE FK_id_jugador=$id ORDER BY PK_id_asistencia DESC") -eq 'SIN_VERIFICAR') "HTTP $($r.s) $($r.b)"
+Chk 'Deportivo' 'sin el Administrativo el listado sigue funcionando y marca SIN VERIFICAR' ((EstadoCuotaListado $T) -eq 'SIN VERIFICAR') (EstadoCuotaListado $T)
+$r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '10000001' }; Chk 'QR' 'sin el Administrativo, un DNI que no es de un jugador tampoco pasa' ($r.s -in 422, 503) "HTTP $($r.s)"
+ReiniciarNuestro
+$T = Login '20111222'
+$pagosAntes = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id")
+$r = Call 'DELETE' "$B/api/jugadores/$id" $T; Chk 'Bajas' 'borrar un jugador desde el Deportivo es una baja logica' ($r.s -eq 200) "HTTP $($r.s) $($r.b)"
+Chk 'Bajas' 'se conservan la persona, los pagos y el historial' ((SQ "SELECT CAST((SELECT COUNT(*) FROM PERSONAS WHERE dni='41000001') AS varchar)+'/'+CAST((SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id) AS varchar)+'/'+CAST(activo AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq "1/$pagosAntes/0") "pagos=$pagosAntes"
+Chk 'Bajas' 'la baja cierra el periodo de permanencia' ((SQ "SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id AND fecha_baja IS NULL") -eq '0') ''
+Chk 'Bajas' 'el jugador dado de baja ya no figura en el listado ni en su ficha' ((EstadoCuotaListado $T) -eq 'no figura' -and (Call 'GET' "$B/api/jugadores/$id" $T).s -eq 404) ''
+$r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json; Chk 'Bajas' 'y el QR no lo deja entrar' ($r.s -eq 200 -and -not $j.accesoPermitido) "HTTP $($r.s) $($r.b)"
+$r = Call 'POST' "$A/api/jugadores/$id/reactivar" $T; Chk 'Bajas' 'el Administrativo lo puede reincorporar con su historial' ($r.s -eq 200 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id") -eq $pagosAntes) "HTTP $($r.s)"
+
 # ================= 5. CIERRE DE SESION
 Write-Host '--- 5. Cierre de sesion' -ForegroundColor Cyan
 $TM = Login '30000003'
 $r = Call 'POST' "$A/api/auth/logout" $TM; Chk 'Sesion' 'logout en el Administrativo' ($r.s -eq 204) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/categorias" $TM; Chk 'Sesion' 'el token ya no sirve en el Administrativo' ($r.s -eq 401) "HTTP $($r.s)"
-$r = Call 'GET' "$B/api/categorias" $TM; Gap 'Sesion' 'el token tampoco sirve en el Deportivo' ($r.s -eq 401) "HTTP $($r.s)"
+$r = Call 'GET' "$B/api/categorias" $TM; Chk 'Sesion' 'el token tampoco sirve en el Deportivo' ($r.s -eq 401) "HTTP $($r.s)"
 
 # ================= RESUMEN
 $pasa = @($res | Where-Object T -eq 'PASA').Count; $falla = @($res | Where-Object T -eq 'FALLA').Count; $gap = @($res | Where-Object T -eq 'GAP').Count

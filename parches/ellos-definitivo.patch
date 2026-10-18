@@ -1,0 +1,1980 @@
+diff -ruN a/CACC.API/Authorization/UserScopeService.cs b/CACC.API/Authorization/UserScopeService.cs
+--- a/CACC.API/Authorization/UserScopeService.cs	2026-10-18 17:45:32.490348700 -0300
++++ b/CACC.API/Authorization/UserScopeService.cs	2026-10-18 18:07:15.338588700 -0300
+@@ -33,7 +33,7 @@
+     public async Task<bool> CanReadPlayerAsync(ClaimsPrincipal user, int playerId)
+     {
+         var roleId = GetRoleId(user);
+-        if (roleId is 1 or 2 or 3 or 5 or 7) return true;
++        if (roleId is 1 or 3 or 5 or 7) return true;
+         if (roleId is not (4 or 6)) return false;
+ 
+         var categories = GetAssignedCategoryIds(user);
+diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers/AsistenciasController.cs
+--- a/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 17:45:32.591690500 -0300
++++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 18:07:15.456693600 -0300
+@@ -1,7 +1,10 @@
+ using CACC.API.DTOs;
++using CACC.API.Services;
+ using CACC.DAO;
++using CACC.Entities;
+ using Microsoft.AspNetCore.Authorization;
+ using Microsoft.AspNetCore.Mvc;
++using Microsoft.Extensions.Options;
+ using CACC.API.Security;
+ 
+ namespace CACC.API.Controllers
+@@ -12,39 +15,116 @@
+     public class AsistenciasController : ControllerBase
+     {
+         private readonly IAsistenciaDao _asistenciaDao;
++        private readonly IEstadoDeudaClient _estadoDeuda;
++        private readonly AdministrativoApiOptions _opciones;
+ 
+-        public AsistenciasController(IAsistenciaDao asistenciaDao)
++        public AsistenciasController(IAsistenciaDao asistenciaDao, IEstadoDeudaClient estadoDeuda, IOptions<AdministrativoApiOptions> opciones)
+         {
+             _asistenciaDao = asistenciaDao;
++            _estadoDeuda = estadoDeuda;
++            _opciones = opciones.Value;
+         }
+ 
++        // La deuda la informa el Portal Administrativo (fuente única); acá solo se decide el acceso y se registra la asistencia.
+         [HttpPost("verificar-y-registrar")]
+-        public async Task<IActionResult> VerificarYRegistrar([FromBody] AsistenciaRequestDto request)
++        public async Task<IActionResult> VerificarYRegistrar([FromBody] AsistenciaRequestDto request, CancellationToken ct = default)
+         {
+             if (string.IsNullOrWhiteSpace(request.Dni))
+             {
+                 return BadRequest(new { message = "El DNI es obligatorio." });
+             }
+ 
+-            var resultado = await _asistenciaDao.ProcesarIngresoAsync(request.Dni.Trim(), request.Observaciones ?? string.Empty);
++            string dni = request.Dni.Trim();
++            var consulta = await _estadoDeuda.PorDniAsync(dni, ct);
++
++            switch (consulta.Resultado)
++            {
++                case ResultadoConsulta.DniInvalido:
++                    return BadRequest(new { message = "El DNI no es válido." });
++                case ResultadoConsulta.NoEsJugador:
++                    return UnprocessableEntity(new { message = "El DNI no pertenece a un jugador." });
++                case ResultadoConsulta.Ambiguo:
++                    return UnprocessableEntity(new { message = "El DNI está asociado a múltiples jugadores." });
++                case ResultadoConsulta.SinPermiso:
++                    return StatusCode(consulta.CodigoHttp == 401 ? 401 : 403, new { message = "El Portal Administrativo no reconoce esta sesión. Volvé a iniciar sesión." });
++                case ResultadoConsulta.NoResponde:
++                    return await SinRespuestaAsync(dni, request.Observaciones);
++            }
++
++            var estado = consulta.Estado!;
++            if (!estado.AccesoPermitido)
++            {
++                return Ok(new
++                {
++                    accesoPermitido = false,
++                    asistenciaRegistrada = false,
++                    yaRegistrada = false,
++                    verificado = true,
++                    estado = estado.Estado,
++                    mensaje = MensajeDenegado(estado),
++                    deudaTotal = estado.DeudaTotal,
++                    cuotasVencidas = estado.CuotasVencidas
++                });
++            }
++
++            var resultado = await _asistenciaDao.RegistrarAsistenciaAsync(dni, AsistenciaDao.Permitido, request.Observaciones);
+             if (!resultado.PersonaEncontrada)
+             {
+                 return UnprocessableEntity(new { message = resultado.Error ?? "No se pudo identificar un jugador inequívoco." });
+             }
+-            var mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : resultado.CuotasVencidas switch {
++
++            string mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : estado.CuotasVencidas switch
++            {
+                 0 => "Asistencia registrada. Acceso permitido.",
+-                1 => "Asistencia registrada. El jugador posee un mes de deuda.",
+-                _ => $"Acceso denegado. El jugador posee {resultado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada."
++                _ => "Asistencia registrada. El jugador posee un mes de deuda."
+             };
+             return Ok(new
+             {
+-                accesoPermitido = resultado.AccesoPermitido,
++                accesoPermitido = true,
+                 asistenciaRegistrada = resultado.AsistenciaRegistrada,
+                 yaRegistrada = resultado.YaRegistrada,
++                verificado = true,
++                estado = estado.Estado,
+                 mensaje,
+-                deudaTotal = resultado.DeudaTotal,
+-                cuotasVencidas = resultado.CuotasVencidas
++                deudaTotal = estado.DeudaTotal,
++                cuotasVencidas = estado.CuotasVencidas
++            });
++        }
++
++        private async Task<IActionResult> SinRespuestaAsync(string dni, string? observaciones)
++        {
++            if (!_opciones.PermiteSiNoResponde)
++            {
++                return StatusCode(503, new
++                {
++                    message = "No se pudo consultar la deuda en el Portal Administrativo. No se registró el ingreso; reintentá en unos minutos."
++                });
++            }
++
++            // Se deja pasar solo a un jugador activo (la base lo comprueba) y la asistencia queda marcada para revisarla.
++            string nota = "Ingreso sin verificar la deuda: el Portal Administrativo no respondió." +
++                (string.IsNullOrWhiteSpace(observaciones) ? "" : " " + observaciones.Trim());
++            var resultado = await _asistenciaDao.RegistrarAsistenciaAsync(dni, AsistenciaDao.SinVerificar, nota);
++            if (!resultado.PersonaEncontrada)
++            {
++                return UnprocessableEntity(new { message = resultado.Error ?? "No se pudo identificar un jugador inequívoco." });
++            }
++
++            return Ok(new
++            {
++                accesoPermitido = true,
++                asistenciaRegistrada = resultado.AsistenciaRegistrada,
++                yaRegistrada = resultado.YaRegistrada,
++                verificado = false,
++                estado = "sin_verificar",
++                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar.",
++                deudaTotal = 0m,
++                cuotasVencidas = 0
+             });
+         }
++
++        private static string MensajeDenegado(EstadoDeudaAdministrativo estado) => estado.Estado == "baja"
++            ? "Acceso denegado. El jugador está dado de baja y la asistencia no fue registrada."
++            : $"Acceso denegado. El jugador posee {estado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada.";
+     }
+ }
+diff -ruN a/CACC.API/Controllers/AuthController.cs b/CACC.API/Controllers/AuthController.cs
+--- a/CACC.API/Controllers/AuthController.cs	2026-10-18 17:45:32.638446400 -0300
++++ b/CACC.API/Controllers/AuthController.cs	2026-10-18 18:07:15.351573100 -0300
+@@ -25,6 +25,13 @@
+         [HttpPost("login")]
+         public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
+         {
++            // El inicio de sesión es único para los dos portales y vive en el Portal Administrativo. Este login queda
++            // apagado; solo se prende (Auth:LoginPropio = true) en un entorno de desarrollo sin el otro portal.
++            if (!_configuration.GetValue<bool>("Auth:LoginPropio"))
++            {
++                return StatusCode(410, new { message = "El inicio de sesión es único: ingresá desde el Portal Administrativo." });
++            }
++
+             if (dto == null || string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.Password))
+             {
+                 return BadRequest(new { message = "El usuario y la contraseña son obligatorios." });
+diff -ruN a/CACC.API/Controllers/CategoriasController.cs b/CACC.API/Controllers/CategoriasController.cs
+--- a/CACC.API/Controllers/CategoriasController.cs	2026-10-18 17:45:32.684718600 -0300
++++ b/CACC.API/Controllers/CategoriasController.cs	2026-10-18 18:07:15.327072400 -0300
+@@ -110,7 +110,16 @@
+         [Authorize(Roles = AppRoles.Administradores)]
+         public async Task<IActionResult> EliminarCategoria(int id)
+         {
+-            bool ok = await _categoriaDao.EliminarAsync(id);
++            bool ok;
++            try
++            {
++                ok = await _categoriaDao.EliminarAsync(id);
++            }
++            catch (CategoriaEnUsoException ex)
++            {
++                return Conflict(new { message = ex.Message });
++            }
++
+             if (!ok)
+             {
+                 return NotFound(new { message = $"Categoría con ID {id} no encontrada para eliminar." });
+diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/JugadoresController.cs
+--- a/CACC.API/Controllers/JugadoresController.cs	2026-10-18 17:45:32.861417900 -0300
++++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 18:07:15.328581100 -0300
+@@ -1,4 +1,5 @@
+ using CACC.API.DTOs;
++using CACC.API.Services;
+ using CACC.DAO;
+ using CACC.Entities;
+ using Microsoft.AspNetCore.Authorization;
+@@ -15,11 +16,13 @@
+     {
+         private readonly IJugadorDao _jugadorDao;
+         private readonly ICurrentUserAccess _access;
++        private readonly IEstadoDeudaClient _estadoDeuda;
+ 
+-        public JugadoresController(IJugadorDao jugadorDao, ICurrentUserAccess access)
++        public JugadoresController(IJugadorDao jugadorDao, ICurrentUserAccess access, IEstadoDeudaClient estadoDeuda)
+         {
+             _jugadorDao = jugadorDao;
+             _access = access;
++            _estadoDeuda = estadoDeuda;
+         }
+ 
+         [HttpGet]
+@@ -58,7 +61,15 @@
+                 jugadoresDb = await _jugadorDao.ObtenerTodosAsync();
+             }
+ 
+-            var response = jugadoresDb.Select(j => new JugadorResponseDto
++            // El estado de cuota lo informa el Portal Administrativo (una sola consulta para todo el listado).
++            var lista = jugadoresDb.ToList();
++            var estados = await _estadoDeuda.PorLoteAsync(lista.Select(j => j.Dni), HttpContext.RequestAborted);
++            foreach (var j in lista)
++            {
++                j.EstadoCuota = EstadoCuotaTexto.De(estados is not null && estados.TryGetValue(j.Dni, out var e) ? e : null);
++            }
++
++            var response = lista.Select(j => new JugadorResponseDto
+             {
+                 IdJugador = j.IdJugador,
+                 Nombre = j.Nombre,
+@@ -103,6 +114,9 @@
+                 return Forbid();
+             }
+ 
++            var consulta = await _estadoDeuda.PorDniAsync(j.Dni, HttpContext.RequestAborted);
++            j.EstadoCuota = EstadoCuotaTexto.De(consulta.Resultado == ResultadoConsulta.Ok ? consulta.Estado : null);
++
+             var response = new JugadorResponseDto
+             {
+                 IdJugador = j.IdJugador,
+@@ -158,6 +172,12 @@
+                 return BadRequest(new { message = "Datos de actualización inválidos." });
+             }
+ 
++            // El género nunca queda vacío: de él sale el arancel que se le cobra. Si no viene, se conserva el que ya tiene.
++            if (dto.Genero != null && dto.Genero != "Masculino" && dto.Genero != "Femenino")
++            {
++                return BadRequest(new { message = "El género debe ser Masculino o Femenino." });
++            }
++
+             try
+             {
+                 var jugador = new JugadorDetalle
+@@ -205,6 +225,16 @@
+                 return BadRequest(new { message = "El nombre y el DNI son obligatorios." });
+             }
+ 
++            // De estos dos datos sale el arancel que se le cobra al jugador: la base tambien los exige.
++            if (dto.Genero != "Masculino" && dto.Genero != "Femenino")
++            {
++                return BadRequest(new { message = "El género es obligatorio (Masculino o Femenino): sin él no se sabe qué arancel cobrarle." });
++            }
++            if (!int.TryParse(dto.Categoria, out int idCategoria) || idCategoria <= 0)
++            {
++                return BadRequest(new { message = "La categoría es obligatoria." });
++            }
++
+             try
+             {
+                 var jugadorAlta = new JugadorAlta
+@@ -213,6 +243,7 @@
+                     Nombre = dto.Nombre,
+                     Apellido = dto.Apellido,
+                     FechaNacimiento = dto.FechaNacimiento,
++                    Genero = dto.Genero,
+                     Categoria = dto.Categoria,
+                     Posicion = dto.Posicion,
+                     ClubOrigen = dto.ClubOrigen,
+@@ -261,7 +292,7 @@
+                     return NotFound(new { message = $"Jugador con ID {id} no encontrado." });
+                 }
+ 
+-                return Ok(new { message = "Jugador eliminado correctamente del club." });
++                return Ok(new { message = "Jugador dado de baja correctamente. Su historial se conserva." });
+             }
+             catch (Exception ex)
+             {
+diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.cs
+--- a/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 17:45:33.163680400 -0300
++++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 18:07:15.088876900 -0300
+@@ -16,6 +16,11 @@
+         [JsonPropertyName("fechaNacimiento")]
+         public DateTime? FechaNacimiento { get; set; }
+ 
++        // Masculino o Femenino. Obligatorio: de el sale el arancel que se le cobra al jugador.
++        [JsonPropertyName("genero")]
++        public string Genero { get; set; } = string.Empty;
++
++        // Obligatoria: sin categoria el jugador no figura en los listados de deuda del Portal Administrativo.
+         [JsonPropertyName("categoria")]
+         public string Categoria { get; set; } = string.Empty;
+ 
+diff -ruN a/CACC.API/Program.cs b/CACC.API/Program.cs
+--- a/CACC.API/Program.cs	2026-10-18 17:45:33.950998500 -0300
++++ b/CACC.API/Program.cs	2026-10-18 18:07:15.362605100 -0300
+@@ -5,6 +5,7 @@
+ using System.Text;
+ using QuestPDF.Infrastructure;
+ using CACC.API.Security;
++using System.Security.Claims;
+ 
+ // Configuramos la licencia Community de QuestPDF 
+ QuestPDF.Settings.License = LicenseType.Community;
+@@ -16,7 +17,10 @@
+ {
+     options.AddPolicy("AllowAngular", policy =>
+     {
+-        policy.WithOrigins("http://localhost:4200", "http://127.0.0.1:4200")
++        // Orígenes permitidos: Cors:AllowedOrigins (variable de entorno Cors__AllowedOrigins__0, ...). En desarrollo, el
++        // Portal Administrativo usa el puerto 4200 y este portal el 4300.
++        policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
++                  ?? new[] { "http://localhost:4200", "http://127.0.0.1:4200", "http://localhost:4300", "http://127.0.0.1:4300" })
+               .AllowAnyHeader()
+               .AllowAnyMethod();
+     });
+@@ -30,6 +34,19 @@
+ builder.Services.AddScoped<IFichaMedicaDao, FichaMedicaDao>();
+ builder.Services.AddScoped<IAsistenciaDao, AsistenciaDao>();
+ builder.Services.AddScoped<IQrService, QrService>();
++
++// La deuda de cada jugador la informa el Portal Administrativo: es la única fuente de verdad.
++var administrativo = builder.Configuration.GetSection(AdministrativoApiOptions.Seccion).Get<AdministrativoApiOptions>() ?? new AdministrativoApiOptions();
++if (string.IsNullOrWhiteSpace(administrativo.BaseUrl) && builder.Environment.IsDevelopment())
++    administrativo.BaseUrl = "http://localhost:5118"; // puerto por defecto del Portal Administrativo en desarrollo
++builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(administrativo));
++if (!Uri.TryCreate(administrativo.BaseUrl, UriKind.Absolute, out var administrativoUrl))
++    throw new InvalidOperationException("Falta AdministrativoApi:BaseUrl (la dirección de la API del Portal Administrativo).");
++builder.Services.AddHttpClient<IEstadoDeudaClient, EstadoDeudaClient>(client =>
++{
++    client.BaseAddress = new Uri(administrativoUrl.AbsoluteUri.TrimEnd('/') + "/");
++    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(administrativo.TimeoutSegundos, 1, 30));
++});
+ builder.Services.AddHttpContextAccessor();
+ builder.Services.AddScoped<ICurrentUserAccess, CurrentUserAccess>();
+ builder.Services.AddScoped<CACC.API.Authorization.IUserScopeService, CACC.API.Authorization.UserScopeService>();
+@@ -37,11 +54,16 @@
+ //  Agregar soporte para los Controllers
+ builder.Services.AddControllers();
+ 
+-//  Configurar el validador de JWT
+-var jwtKey = builder.Configuration["JwtSettings:Key"]
+-    ?? throw new InvalidOperationException("Falta la clave JWT en appsettings.");
+-var jwtIssuer = builder.Configuration["JwtSettings:Issuer"];
+-var jwtAudience = builder.Configuration["JwtSettings:Audience"];
++//  Configurar el validador de JWT. La clave, el emisor y la audiencia son los MISMOS que usa el Portal Administrativo
++//  (que es quien emite los tokens): se leen de Jwt:* (variables de entorno Jwt__Key, Jwt__Issuer, Jwt__Audience) y,
++//  por compatibilidad, de JwtSettings:*.
++var jwtKey = builder.Configuration["Jwt:Key"] ?? builder.Configuration["JwtSettings:Key"]
++    ?? throw new InvalidOperationException("Falta la clave JWT (Jwt:Key).");
++var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? builder.Configuration["JwtSettings:Issuer"];
++var jwtAudience = builder.Configuration["Jwt:Audience"] ?? builder.Configuration["JwtSettings:Audience"];
++const string ClaveDeEjemploDelRepositorio = "EstaEsUnaClaveSuperSecretaYMuyLargaParaElProyectoCACC2026";
++if (Encoding.UTF8.GetByteCount(jwtKey) < 32 || (!builder.Environment.IsDevelopment() && jwtKey == ClaveDeEjemploDelRepositorio))
++    throw new InvalidOperationException("La clave JWT es corta o es la de ejemplo del repositorio: usá la misma clave secreta que el Portal Administrativo.");
+ 
+ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+     .AddJwtBearer(options =>
+@@ -59,6 +81,29 @@
+             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+             ClockSkew = TimeSpan.Zero
+         };
++        options.Events = new JwtBearerEvents
++        {
++            // Igual que en el Portal Administrativo: un token cuya sesión se cerró, cuyo usuario se desactivó o cuyos
++            // permisos cambiaron deja de servir acá también.
++            OnTokenValidated = async context =>
++            {
++                var principal = context.Principal;
++                if (!int.TryParse(principal?.FindFirstValue("idUsuario"), out var idUsuario)
++                    || !int.TryParse(principal?.FindFirstValue("rol_portal"), out var rolPortal)
++                    || !int.TryParse(principal?.FindFirstValue("tokenVersion"), out var tokenVersion))
++                {
++                    context.Fail("Token inválido: iniciá sesión desde el Portal Administrativo.");
++                    return;
++                }
++
++                var cadena = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")
++                    ?? throw new InvalidOperationException("Cadena de conexión no configurada.");
++                if (!await SesionVigente.VerificarAsync(cadena, idUsuario, rolPortal, tokenVersion, context.HttpContext.RequestAborted))
++                {
++                    context.Fail("Sesión cerrada, usuario inactivo o permisos revocados.");
++                }
++            }
++        };
+     });
+ 
+ var app = builder.Build();
+@@ -67,6 +112,14 @@
+ app.UseCors("AllowAngular");
+ 
+ app.UseAuthentication(); // Primero validamos quién sos
++
++// Quién hace el pedido, para que la auditoría de la base registre al responsable de cada cambio.
++app.Use(async (context, next) =>
++{
++    ContextoAuditoria.IdUsuario = int.TryParse(context.User.FindFirstValue("idUsuario"), out var idUsuarioAuditoria) ? idUsuarioAuditoria : null;
++    await next();
++});
++
+ app.UseAuthorization();  // Después validamos qué podés hacer
+ 
+ app.MapControllers();
+diff -ruN a/CACC.API/Security/SesionVigente.cs b/CACC.API/Security/SesionVigente.cs
+--- a/CACC.API/Security/SesionVigente.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.API/Security/SesionVigente.cs	2026-10-18 18:07:15.468204600 -0300
+@@ -0,0 +1,24 @@
++using Microsoft.Data.SqlClient;
++using System.Data;
++
++namespace CACC.API.Security
++{
++    // La cuenta sigue activa y el token no fue invalidado (cierre de sesión, cambio de permisos o de contraseña). Es la misma
++    // regla que aplica el Portal Administrativo: un token viejo deja de servir en los dos portales a la vez.
++    public static class SesionVigente
++    {
++        // rolPortal: 0 si la cuenta no tiene acceso al Portal Administrativo (personal del Deportivo), 1 o 2 si lo tiene.
++        public static async Task<bool> VerificarAsync(string connectionString, int idUsuario, int rolPortal, int tokenVersion, CancellationToken ct = default)
++        {
++            await using var connection = new SqlConnection(connectionString);
++            await connection.OpenAsync(ct);
++            await using var command = new SqlCommand(rolPortal == 0
++                ? "SELECT 1 FROM USUARIOS WHERE PK_id_usuario = @id AND @rol = 0 AND activo = 1 AND token_version = @version"
++                : "SELECT 1 FROM USUARIOS WHERE PK_id_usuario = @id AND rol_portal = @rol AND acceso_portal = 1 AND activo = 1 AND token_version = @version", connection);
++            command.Parameters.Add("@id", SqlDbType.Int).Value = idUsuario;
++            command.Parameters.Add("@rol", SqlDbType.Int).Value = rolPortal;
++            command.Parameters.Add("@version", SqlDbType.Int).Value = tokenVersion;
++            return await command.ExecuteScalarAsync(ct) is not null;
++        }
++    }
++}
+diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeudaClient.cs
+--- a/CACC.API/Services/EstadoDeudaClient.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 18:07:15.483909000 -0300
+@@ -0,0 +1,174 @@
++using System.Net;
++using System.Net.Http.Headers;
++using System.Text;
++using System.Text.Json;
++using CACC.Entities;
++using Microsoft.Extensions.Options;
++
++namespace CACC.API.Services
++{
++    // Cómo se configura la conexión con el Portal Administrativo (sección "AdministrativoApi").
++    public class AdministrativoApiOptions
++    {
++        public const string Seccion = "AdministrativoApi";
++
++        // Dirección de la API del Portal Administrativo, por ejemplo http://localhost:5118
++        public string BaseUrl { get; set; } = string.Empty;
++
++        // Cuánto se espera la respuesta antes de darla por caída.
++        public int TimeoutSegundos { get; set; } = 3;
++
++        // Qué hace el QR si el Portal Administrativo no responde:
++        //   "Permitir": deja pasar a un jugador activo y marca la asistencia SIN_VERIFICAR para revisarla después.
++        //   "Denegar": no deja pasar a nadie hasta que se pueda consultar la deuda.
++        public string SiNoResponde { get; set; } = Permitir;
++
++        public const string Permitir = "Permitir";
++        public const string Denegar = "Denegar";
++
++        public bool PermiteSiNoResponde => !string.Equals(SiNoResponde?.Trim(), Denegar, StringComparison.OrdinalIgnoreCase);
++    }
++
++    public enum ResultadoConsulta
++    {
++        Ok,
++        DniInvalido,
++        NoEsJugador,
++        Ambiguo,
++        // El Portal Administrativo rechazó el token (sesión cerrada o sin permiso para consultar).
++        SinPermiso,
++        // No respondió a tiempo, devolvió un error o no está configurado.
++        NoResponde
++    }
++
++    public sealed record ConsultaEstadoDeuda(ResultadoConsulta Resultado, EstadoDeudaAdministrativo? Estado = null, int CodigoHttp = 0);
++
++    public interface IEstadoDeudaClient
++    {
++        Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default);
++
++        // El estado de varios jugadores por DNI (para los listados). Devuelve null si el Portal Administrativo no responde;
++        // los DNI que no son de jugadores simplemente no figuran en el resultado.
++        Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default);
++    }
++
++    public sealed class EstadoDeudaClient : IEstadoDeudaClient
++    {
++        private const int MaximoPorLote = 500;
++        private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
++
++        private readonly HttpClient _http;
++        private readonly IHttpContextAccessor _contexto;
++        private readonly ILogger<EstadoDeudaClient> _logger;
++
++        public EstadoDeudaClient(HttpClient http, IHttpContextAccessor contexto, ILogger<EstadoDeudaClient> logger)
++        {
++            _http = http;
++            _contexto = contexto;
++            _logger = logger;
++        }
++
++        public async Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default)
++        {
++            using var pedido = NuevoPedido(HttpMethod.Get, $"api/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
++            try
++            {
++                using var respuesta = await _http.SendAsync(pedido, ct);
++                switch (respuesta.StatusCode)
++                {
++                    case HttpStatusCode.OK:
++                        var estado = await respuesta.Content.ReadFromJsonAsync<EstadoDeudaAdministrativo>(Json, ct);
++                        return estado is null
++                            ? new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde, CodigoHttp: 200)
++                            : new ConsultaEstadoDeuda(ResultadoConsulta.Ok, estado, 200);
++                    case HttpStatusCode.BadRequest:
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.DniInvalido, CodigoHttp: 400);
++                    case HttpStatusCode.NotFound:
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.NoEsJugador, CodigoHttp: 404);
++                    case HttpStatusCode.Conflict:
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.Ambiguo, CodigoHttp: 409);
++                    case HttpStatusCode.Unauthorized:
++                    case HttpStatusCode.Forbidden:
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.SinPermiso, CodigoHttp: (int)respuesta.StatusCode);
++                    default:
++                        _logger.LogWarning("El Portal Administrativo respondió {Codigo} al consultar la deuda.", (int)respuesta.StatusCode);
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde, CodigoHttp: (int)respuesta.StatusCode);
++                }
++            }
++            catch (Exception ex) when (EsFalloDeConexion(ex, ct))
++            {
++                _logger.LogWarning(ex, "No se pudo consultar la deuda al Portal Administrativo.");
++                return new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde);
++            }
++        }
++
++        public async Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default)
++        {
++            var pendientes = dnis.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct().ToList();
++            var resultado = new Dictionary<string, EstadoDeudaAdministrativo>();
++            if (pendientes.Count == 0) return resultado;
++
++            try
++            {
++                for (int i = 0; i < pendientes.Count; i += MaximoPorLote)
++                {
++                    var tanda = pendientes.Skip(i).Take(MaximoPorLote).ToList();
++                    using var pedido = NuevoPedido(HttpMethod.Post, "api/estado-deuda/lote");
++                    pedido.Content = new StringContent(JsonSerializer.Serialize(new { dnis = tanda }, Json), Encoding.UTF8, "application/json");
++                    using var respuesta = await _http.SendAsync(pedido, ct);
++                    if (!respuesta.IsSuccessStatusCode)
++                    {
++                        _logger.LogWarning("El Portal Administrativo respondió {Codigo} al consultar la deuda por lote.", (int)respuesta.StatusCode);
++                        return null;
++                    }
++
++                    var cuerpo = await respuesta.Content.ReadFromJsonAsync<LoteRespuesta>(Json, ct);
++                    if (cuerpo?.Items is null) return null;
++                    foreach (var item in cuerpo.Items) resultado[item.Dni] = item;
++                }
++                return resultado;
++            }
++            catch (Exception ex) when (EsFalloDeConexion(ex, ct))
++            {
++                _logger.LogWarning(ex, "No se pudo consultar la deuda por lote al Portal Administrativo.");
++                return null;
++            }
++        }
++
++        // Reenvía el token del usuario: es el mismo en los dos portales.
++        private HttpRequestMessage NuevoPedido(HttpMethod metodo, string ruta)
++        {
++            var pedido = new HttpRequestMessage(metodo, ruta);
++            string? autorizacion = _contexto.HttpContext?.Request.Headers.Authorization.ToString();
++            if (!string.IsNullOrWhiteSpace(autorizacion) && AuthenticationHeaderValue.TryParse(autorizacion, out var valor))
++            {
++                pedido.Headers.Authorization = valor;
++            }
++            return pedido;
++        }
++
++        // Una cancelación pedida por quien llama se propaga; todo lo demás (caída, timeout, respuesta ilegible) cuenta como "no responde".
++        private static bool EsFalloDeConexion(Exception ex, CancellationToken ct) =>
++            !ct.IsCancellationRequested && (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException);
++
++        private sealed class LoteRespuesta
++        {
++            public List<EstadoDeudaAdministrativo>? Items { get; set; }
++        }
++    }
++
++    // Texto que muestran los listados del Deportivo para el estado de cuota de cada jugador.
++    public static class EstadoCuotaTexto
++    {
++        public const string SinVerificar = "SIN VERIFICAR";
++
++        public static string De(EstadoDeudaAdministrativo? estado) => estado?.Estado switch
++        {
++            "habilitado" => "AL DÍA",
++            "solo_entrenamientos" => "PENDIENTE",
++            "inhabilitado" => "INHABILITADO",
++            "baja" => "BAJA",
++            _ => SinVerificar
++        };
++    }
++}
+diff -ruN a/CACC.DAO/AsistenciaDao.cs b/CACC.DAO/AsistenciaDao.cs
+--- a/CACC.DAO/AsistenciaDao.cs	2026-10-18 17:45:34.357809100 -0300
++++ b/CACC.DAO/AsistenciaDao.cs	2026-10-18 18:07:15.377330700 -0300
+@@ -7,6 +7,10 @@
+ {
+     public class AsistenciaDao : IAsistenciaDao
+     {
++        public const string Permitido = "PERMITIDO";
++        // El Portal Administrativo no respondió y la política configurada deja pasar: queda marcado para revisarlo después.
++        public const string SinVerificar = "SIN_VERIFICAR";
++
+         private readonly string _connectionString;
+ 
+         public AsistenciaDao(IConfiguration configuration)
+@@ -15,46 +19,59 @@
+                 ?? throw new InvalidOperationException("Connection string no configurado.");
+         }
+ 
+-        public async Task<ResultadoIngreso> ProcesarIngresoAsync(string dni, string observaciones)
++        // Registra la asistencia de hoy del jugador activo con ese DNI. La deuda ya la resolvió quien llama (la consulta al
++        // Portal Administrativo); acá solo se identifica al jugador, se descartan las bajas y se evita duplicar el día.
++        public async Task<ResultadoIngreso> RegistrarAsistenciaAsync(string dni, string estadoAcceso, string? observaciones)
+         {
+             await using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+             try
+             {
+-            const string query = @"SELECT j.PK_id_jugador,
+-                ISNULL(v.deuda_total, 0) deuda_total,
+-                ISNULL(v.cantidad_cuotas_vencidas, 0) cantidad_cuotas_vencidas
+-                FROM JUGADORES j WITH (UPDLOCK, HOLDLOCK)
+-                INNER JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona
+-                LEFT JOIN VISTA_ESTADO_DEUDA v ON v.FK_id_jugador=j.PK_id_jugador
+-                WHERE p.dni=@Dni";
+-            await using var command = new SqlCommand(query, connection, transaction);
+-            command.Parameters.AddWithValue("@Dni", dni);
+-            var matches = new List<(int IdJugador, decimal Deuda, int Cuotas)>();
+-            await using (var reader = await command.ExecuteReaderAsync())
+-            {
+-                while (await reader.ReadAsync()) matches.Add((reader.GetInt32(0), reader.GetDecimal(1), reader.GetInt32(2)));
+-            }
+-            if (matches.Count != 1) { await transaction.RollbackAsync(); return new ResultadoIngreso { Error = matches.Count == 0 ? "El DNI no pertenece a un jugador." : "El DNI está asociado a múltiples jugadores." }; }
+-            var (idJugador, deuda, cuotas) = matches[0];
+-            var result = new ResultadoIngreso { PersonaEncontrada=true, AccesoPermitido=cuotas < 2, DeudaTotal=deuda, CuotasVencidas=cuotas };
+-            if (cuotas < 2)
+-            {
++                const string query = @"SELECT j.PK_id_jugador
++                    FROM JUGADORES j WITH (UPDLOCK, HOLDLOCK)
++                    INNER JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona
++                    WHERE p.dni=@Dni AND j.activo=1";
++                await using var command = new SqlCommand(query, connection, transaction);
++                command.Parameters.AddWithValue("@Dni", dni);
++                var ids = new List<int>();
++                await using (var reader = await command.ExecuteReaderAsync())
++                {
++                    while (await reader.ReadAsync()) ids.Add(reader.GetInt32(0));
++                }
++                if (ids.Count != 1)
++                {
++                    await transaction.RollbackAsync();
++                    return new ResultadoIngreso { Error = ids.Count == 0 ? "El DNI no pertenece a un jugador activo." : "El DNI está asociado a múltiples jugadores." };
++                }
++
++                int idJugador = ids[0];
++                var result = new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true };
++
+                 const string exists = @"SELECT TOP(1) 1 FROM ASISTENCIAS WITH (UPDLOCK,HOLDLOCK)
+                     WHERE FK_id_jugador=@IdJugador AND fecha_hora>=CONVERT(date,GETDATE()) AND fecha_hora<DATEADD(day,1,CONVERT(date,GETDATE()))";
+                 await using var existsCommand = new SqlCommand(exists, connection, transaction);
+                 existsCommand.Parameters.AddWithValue("@IdJugador", idJugador);
+                 result.YaRegistrada = await existsCommand.ExecuteScalarAsync() != null;
+-                if (result.YaRegistrada) { result.AsistenciaRegistrada = true; await transaction.CommitAsync(); return result; }
+-                const string insert = @"INSERT INTO ASISTENCIAS(FK_id_jugador,fecha_hora,estado_acceso)
+-                    VALUES(@IdJugador,GETDATE(),'PERMITIDO')";
++                if (result.YaRegistrada)
++                {
++                    result.AsistenciaRegistrada = true;
++                    await transaction.CommitAsync();
++                    return result;
++                }
++
++                const string insert = @"INSERT INTO ASISTENCIAS(FK_id_jugador,fecha_hora,estado_acceso,observaciones)
++                    VALUES(@IdJugador,GETDATE(),@Estado,@Observaciones)";
+                 await using var insertCommand = new SqlCommand(insert, connection, transaction);
+                 insertCommand.Parameters.AddWithValue("@IdJugador", idJugador);
++                insertCommand.Parameters.AddWithValue("@Estado", estadoAcceso);
++                string? texto = string.IsNullOrWhiteSpace(observaciones) ? null : observaciones.Trim();
++                if (texto is { Length: > 500 }) texto = texto[..500];
++                insertCommand.Parameters.AddWithValue("@Observaciones", (object?)texto ?? DBNull.Value);
+                 result.AsistenciaRegistrada = await insertCommand.ExecuteNonQueryAsync() == 1;
+-            }
+-            await transaction.CommitAsync();
+-            return result;
++
++                await transaction.CommitAsync();
++                return result;
+             }
+             catch
+             {
+diff -ruN a/CACC.DAO/CategoriaDao.cs b/CACC.DAO/CategoriaDao.cs
+--- a/CACC.DAO/CategoriaDao.cs	2026-10-18 17:45:34.455769300 -0300
++++ b/CACC.DAO/CategoriaDao.cs	2026-10-18 18:07:15.315503200 -0300
+@@ -22,7 +22,7 @@
+         {
+             var categorias = new List<Categoria>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "SELECT PK_id_categoria, nombre_categoria FROM CATEGORIAS ORDER BY nombre_categoria ASC;";
+             using var command = new SqlCommand(query, connection);
+@@ -46,7 +46,7 @@
+         {
+             var lista = new List<CategoriaConConteo>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+         SELECT 
+@@ -56,13 +56,14 @@
+             (
+                 SELECT COUNT(*)
+                 FROM JUGADORES j
+-                WHERE j.FK_id_categoria = c.PK_id_categoria
++                WHERE j.activo = 1
++                  AND (j.FK_id_categoria = c.PK_id_categoria
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JUGADORES_CATEGORIAS jc
+                        WHERE jc.FK_id_jugador = j.PK_id_jugador
+                          AND jc.FK_id_categoria = c.PK_id_categoria
+-                   )
++                   ))
+             ) AS cantidad_jugadores,
+             ISNULL(COUNT(DISTINCT sc.FK_id_staff), 0) AS cantidad_staff
+         FROM CATEGORIAS c
+@@ -91,7 +92,7 @@
+         public async Task<Categoria?> ObtenerPorIdAsync(int idCategoria)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "SELECT PK_id_categoria, nombre_categoria FROM CATEGORIAS WHERE PK_id_categoria = @Id;";
+             using var command = new SqlCommand(query, connection);
+@@ -115,7 +116,7 @@
+         public async Task<int> CrearAsync(string nombreCategoria, string asociacion)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+         IF COLUMNPROPERTY(OBJECT_ID('CATEGORIAS'), 'PK_id_categoria', 'IsIdentity') = 1
+@@ -141,7 +142,7 @@
+         public async Task<bool> ActualizarAsync(int idCategoria, string nombreCategoria, string asociacion)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "UPDATE CATEGORIAS SET nombre_categoria = @Nombre, asociacion = @Asociacion WHERE PK_id_categoria = @Id;";
+             using var command = new SqlCommand(query, connection);
+@@ -156,7 +157,7 @@
+         public async Task<bool> ActualizarAsync(int idCategoria, string nombreCategoria)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "UPDATE CATEGORIAS SET nombre_categoria = @Nombre WHERE PK_id_categoria = @Id;";
+             using var command = new SqlCommand(query, connection);
+@@ -170,7 +171,26 @@
+         public async Task<bool> EliminarAsync(int idCategoria)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
++
++            // Una categoria con jugadores o aranceles no se borra: dejaria jugadores sin categoria (que la base exige) o
++            // aranceles huerfanos. Hay que pasarlos antes a otra categoria.
++            const string queryEnUso = @"
++                SELECT
++                    (SELECT COUNT(*) FROM JUGADORES WHERE FK_id_categoria = @Id)
++                  + (SELECT COUNT(*) FROM JUGADORES_CATEGORIAS jc INNER JOIN JUGADORES j ON j.PK_id_jugador = jc.FK_id_jugador
++                     WHERE jc.FK_id_categoria = @Id AND j.activo = 1 AND ISNULL(j.FK_id_categoria, 0) <> @Id),
++                    (SELECT COUNT(*) FROM ARANCELES WHERE FK_id_categoria = @Id);";
++            using (var cmdEnUso = new SqlCommand(queryEnUso, connection))
++            {
++                cmdEnUso.Parameters.AddWithValue("@Id", idCategoria);
++                using var lector = await cmdEnUso.ExecuteReaderAsync();
++                if (await lector.ReadAsync() && (lector.GetInt32(0) > 0 || lector.GetInt32(1) > 0))
++                {
++                    throw new CategoriaEnUsoException(lector.GetInt32(0), lector.GetInt32(1));
++                }
++            }
++
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -191,14 +211,6 @@
+                     await cmd.ExecuteNonQueryAsync();
+                 }
+ 
+-                // 3. Poner en NULL la categoría base en JUGADORES para preservar al atleta
+-                const string queryJug = "UPDATE JUGADORES SET FK_id_categoria = NULL WHERE FK_id_categoria = @Id;";
+-                using (var cmd = new SqlCommand(queryJug, connection, transaction))
+-                {
+-                    cmd.Parameters.AddWithValue("@Id", idCategoria);
+-                    await cmd.ExecuteNonQueryAsync();
+-                }
+-
+                 // 4. Limpieza de partidos e historial dependientes
+                 const string queryPartidosJug = @"
+                     DELETE FROM JUGADORES_PARTIDOS 
+@@ -243,7 +255,7 @@
+         {
+             var jugadores = new List<JugadorPlantel>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT 
+@@ -255,13 +267,14 @@
+                     ISNULL(j.posicion_cancha, 'Sin definir') AS posicion_cancha
+                 FROM JUGADORES j
+                 INNER JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+-                WHERE j.FK_id_categoria = @IdCategoria
++                WHERE j.activo = 1
++                  AND (j.FK_id_categoria = @IdCategoria
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JUGADORES_CATEGORIAS jc
+                        WHERE jc.FK_id_jugador = j.PK_id_jugador
+                          AND jc.FK_id_categoria = @IdCategoria
+-                   )
++                   ))
+                 ORDER BY p.apellido ASC, p.nombre ASC;";
+ 
+             using var command = new SqlCommand(query, connection);
+@@ -291,7 +304,7 @@
+         {
+             var disponibles = new List<JugadorPlantel>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT TOP 50
+@@ -303,7 +316,8 @@
+                     ISNULL(j.posicion_cancha, 'Sin definir') AS posicion_cancha
+                 FROM JUGADORES j
+                 INNER JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+-                WHERE (j.FK_id_categoria IS NULL OR j.FK_id_categoria <> @IdCategoria)
++                WHERE j.activo = 1
++                AND (j.FK_id_categoria IS NULL OR j.FK_id_categoria <> @IdCategoria)
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM JUGADORES_CATEGORIAS jc
+@@ -340,7 +354,7 @@
+         public async Task<bool> AsignarJugadorAsync(int idCategoria, int idJugador)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 IF NOT EXISTS (SELECT 1 FROM JUGADORES_CATEGORIAS WHERE FK_id_jugador = @IdJugador AND FK_id_categoria = @IdCategoria)
+@@ -360,7 +374,7 @@
+         public async Task<bool> QuitarJugadorAsync(int idCategoria, int idJugador)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "DELETE FROM JUGADORES_CATEGORIAS WHERE FK_id_jugador = @IdJugador AND FK_id_categoria = @IdCategoria;";
+             using var command = new SqlCommand(query, connection);
+@@ -375,7 +389,7 @@
+         {
+             var staffList = new List<StaffPlantel>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT 
+@@ -416,7 +430,7 @@
+         {
+             var disponibles = new List<StaffPlantel>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT TOP 50
+@@ -468,7 +482,7 @@
+         public async Task<bool> AsignarStaffAsync(int idCategoria, int idStaff)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 IF NOT EXISTS (SELECT 1 FROM STAFF_CATEGORIAS WHERE FK_id_staff = @IdStaff AND FK_id_categoria = @IdCategoria)
+@@ -497,7 +511,7 @@
+         public async Task<bool> QuitarStaffAsync(int idCategoria, int idStaff)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = "DELETE FROM STAFF_CATEGORIAS WHERE FK_id_staff = @IdStaff AND FK_id_categoria = @IdCategoria;";
+             using var command = new SqlCommand(query, connection);
+@@ -511,7 +525,7 @@
+         {
+             var partidos = new List<PartidoDetalle>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+         SELECT 
+@@ -551,7 +565,7 @@
+         public async Task<int> RegistrarPartidoAsync(PartidoAlta partido)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -599,7 +613,7 @@
+         public async Task<PartidoDetalle?> ObtenerPartidoPorIdAsync(int idPartido)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+         SELECT 
+@@ -667,7 +681,7 @@
+         public async Task<bool> ActualizarPartidoAsync(PartidoEdicion partido)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -731,7 +745,7 @@
+         public async Task<bool> EliminarPartidoAsync(int idPartido)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+diff -ruN a/CACC.DAO/CategoriaEnUsoException.cs b/CACC.DAO/CategoriaEnUsoException.cs
+--- a/CACC.DAO/CategoriaEnUsoException.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.DAO/CategoriaEnUsoException.cs	2026-10-18 18:07:15.386347800 -0300
+@@ -0,0 +1,24 @@
++namespace CACC.DAO
++{
++    // La categoría no se puede borrar porque hay jugadores o aranceles que dependen de ella.
++    public class CategoriaEnUsoException : InvalidOperationException
++    {
++        public int Jugadores { get; }
++        public int Aranceles { get; }
++
++        public CategoriaEnUsoException(int jugadores, int aranceles)
++            : base(Armar(jugadores, aranceles))
++        {
++            Jugadores = jugadores;
++            Aranceles = aranceles;
++        }
++
++        private static string Armar(int jugadores, int aranceles)
++        {
++            var motivos = new List<string>();
++            if (jugadores > 0) motivos.Add(jugadores == 1 ? "1 jugador" : $"{jugadores} jugadores");
++            if (aranceles > 0) motivos.Add(aranceles == 1 ? "1 arancel" : $"{aranceles} aranceles");
++            return $"No se puede eliminar la categoría: tiene {string.Join(" y ", motivos)}. Pasá los jugadores a otra categoría antes de eliminarla.";
++        }
++    }
++}
+diff -ruN a/CACC.DAO/ConexionAuditada.cs b/CACC.DAO/ConexionAuditada.cs
+--- a/CACC.DAO/ConexionAuditada.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.DAO/ConexionAuditada.cs	2026-10-18 18:07:15.399300200 -0300
+@@ -0,0 +1,38 @@
++using Microsoft.Data.SqlClient;
++
++namespace CACC.DAO
++{
++    // Quién hace el pedido que se está atendiendo (id del usuario del token). La API lo fija en cada pedido y las
++    // conexiones lo copian a la sesión de SQL Server al abrirse: los triggers de auditoría de la base unificada lo leen
++    // con SESSION_CONTEXT('idUsuario') para registrar quién hizo cada cambio.
++    public static class ContextoAuditoria
++    {
++        private static readonly AsyncLocal<int?> _idUsuario = new();
++
++        public static int? IdUsuario
++        {
++            get => _idUsuario.Value;
++            set => _idUsuario.Value = value;
++        }
++    }
++
++    public static class ConexionAuditada
++    {
++        // Igual que OpenAsync, pero deja el usuario en el contexto de la sesión. Usar siempre este método para abrir
++        // conexiones que puedan escribir: sin él, la auditoría queda sin responsable.
++        public static async Task OpenAuditadaAsync(this SqlConnection connection, CancellationToken ct = default)
++        {
++            await connection.OpenAsync(ct);
++
++            if (ContextoAuditoria.IdUsuario is not int idUsuario)
++            {
++                return;
++            }
++
++            await using var command = new SqlCommand("EXEC sys.sp_set_session_context @clave, @valor;", connection);
++            command.Parameters.AddWithValue("@clave", "idUsuario");
++            command.Parameters.AddWithValue("@valor", idUsuario);
++            await command.ExecuteNonQueryAsync(ct);
++        }
++    }
++}
+diff -ruN a/CACC.DAO/CredentialDao.cs b/CACC.DAO/CredentialDao.cs
+--- a/CACC.DAO/CredentialDao.cs	2026-10-18 17:45:34.535953300 -0300
++++ b/CACC.DAO/CredentialDao.cs	2026-10-18 18:07:15.192045700 -0300
+@@ -11,7 +11,7 @@
+     public async Task<Guid?> GetOrCreateActiveCredentialForPlayerAsync(int playerId, CancellationToken ct)
+     {
+         await using var connection = new SqlConnection(connectionString);
+-        await connection.OpenAsync(ct);
++        await connection.OpenAuditadaAsync(ct);
+         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+         const string personSql = "SELECT FK_id_persona FROM dbo.JUGADORES WHERE PK_id_jugador=@PlayerId;";
+         await using var person = new SqlCommand(personSql, connection, transaction);
+@@ -37,7 +37,7 @@
+ 
+     public async Task<string?> GetActiveDniAsync(Guid credentialId, CancellationToken ct)
+     {
+-        await using var connection = new SqlConnection(connectionString); await connection.OpenAsync(ct);
++        await using var connection = new SqlConnection(connectionString); await connection.OpenAuditadaAsync(ct);
+         const string sql = "SELECT p.dni FROM dbo.CREDENCIALES_QR c JOIN dbo.PERSONAS p ON p.PK_id_persona=c.FK_id_persona WHERE c.id_credencial=@Id AND c.activa=1 AND c.fecha_revocacion IS NULL;";
+         await using var command = new SqlCommand(sql, connection); command.Parameters.AddWithValue("@Id", credentialId);
+         return (string?)await command.ExecuteScalarAsync(ct);
+@@ -45,7 +45,7 @@
+ 
+     public async Task<CredentialPlayerData?> GetPlayerAsync(int playerId, CancellationToken ct)
+     {
+-        await using var connection = new SqlConnection(connectionString); await connection.OpenAsync(ct);
++        await using var connection = new SqlConnection(connectionString); await connection.OpenAuditadaAsync(ct);
+         const string sql = "SELECT j.PK_id_jugador,p.nombre,p.apellido,p.dni FROM dbo.JUGADORES j JOIN dbo.PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE j.PK_id_jugador=@Id;";
+         await using var command = new SqlCommand(sql, connection); command.Parameters.AddWithValue("@Id", playerId);
+         await using var reader = await command.ExecuteReaderAsync(ct);
+diff -ruN a/CACC.DAO/FichaMedicaDao.cs b/CACC.DAO/FichaMedicaDao.cs
+--- a/CACC.DAO/FichaMedicaDao.cs	2026-10-18 17:45:34.583670800 -0300
++++ b/CACC.DAO/FichaMedicaDao.cs	2026-10-18 18:07:15.202560500 -0300
+@@ -18,7 +18,7 @@
+         public async Task<FichaMedica?> ObtenerPorJugadorIdAsync(int idJugador)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             var query = @"
+                 SELECT PK_id_ficha_medica, FK_id_jugador, obra_social, numero_afiliado_os, 
+@@ -42,7 +42,7 @@
+         public async Task<bool> CrearAsync(FichaMedica ficha)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             var query = @"
+                 INSERT INTO FICHAS_MEDICAS 
+@@ -64,7 +64,7 @@
+         public async Task<bool> ActualizarAsync(FichaMedica ficha)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             var query = @"
+                 UPDATE FICHAS_MEDICAS SET 
+diff -ruN a/CACC.DAO/IAsistenciaDao.cs b/CACC.DAO/IAsistenciaDao.cs
+--- a/CACC.DAO/IAsistenciaDao.cs	2026-10-18 17:45:34.636787600 -0300
++++ b/CACC.DAO/IAsistenciaDao.cs	2026-10-18 18:07:15.405305300 -0300
+@@ -1,3 +1,3 @@
+ using CACC.Entities;
+ namespace CACC.DAO;
+-public interface IAsistenciaDao { Task<ResultadoIngreso> ProcesarIngresoAsync(string dni,string observaciones); }
++public interface IAsistenciaDao { Task<ResultadoIngreso> RegistrarAsistenciaAsync(string dni, string estadoAcceso, string? observaciones); }
+diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
+--- a/CACC.DAO/JugadorDao.cs	2026-10-18 17:45:34.976962300 -0300
++++ b/CACC.DAO/JugadorDao.cs	2026-10-18 18:07:15.301968500 -0300
+@@ -43,7 +43,6 @@
+                 j.peso AS Peso,
+                 j.altura AS Altura,
+                 j.pie_habil AS PieHabil,
+-                ISNULL(v.cantidad_cuotas_vencidas, 0) AS CuotasVencidas,
+                 pt.dni AS TutorDni,
+                 pt.nombre AS TutorNombre,
+                 pt.apellido AS TutorApellido,
+@@ -53,7 +52,6 @@
+             FROM JUGADORES j
+             INNER JOIN PERSONAS p ON j.FK_id_persona = p.PK_id_persona
+             LEFT JOIN CATEGORIAS c ON j.FK_id_categoria = c.PK_id_categoria
+-            LEFT JOIN VISTA_ESTADO_DEUDA v ON j.PK_id_jugador = v.FK_id_jugador
+             LEFT JOIN JUGADORES_RESPONSABLES jr ON j.PK_id_jugador = jr.FK_id_jugador
+             LEFT JOIN RESPONSABLES r ON jr.FK_id_responsable = r.PK_id_responsable
+             LEFT JOIN PERSONAS pt ON r.FK_id_persona = pt.PK_id_persona";
+@@ -68,9 +66,9 @@
+         {
+             var lista = new List<JugadorDetalle>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+-            var query = $"{BaseJugadorQuery} ORDER BY j.PK_id_jugador ASC;";
++            var query = $"{BaseJugadorQuery} WHERE j.activo = 1 ORDER BY j.PK_id_jugador ASC;";
+ 
+             using var command = new SqlCommand(query, connection);
+             using var reader = await command.ExecuteReaderAsync();
+@@ -86,11 +84,11 @@
+         public async Task<JugadorDetalle?> ObtenerPorIdAsync(int id)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             var query = $@"
+                 {BaseJugadorQuery}
+-                WHERE j.PK_id_jugador = @Id;
++                WHERE j.PK_id_jugador = @Id AND j.activo = 1;
+ 
+                 SELECT 
+                     hp.PK_id_partido AS IdPartido,
+@@ -165,10 +163,10 @@
+         {
+             var lista = new List<JugadorDetalle>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             var query = $@"{BaseJugadorQuery} 
+-                WHERE (j.FK_id_categoria = @IdCategoria OR EXISTS (
++                WHERE j.activo = 1 AND (j.FK_id_categoria = @IdCategoria OR EXISTS (
+                     SELECT 1 FROM JUGADORES_CATEGORIAS jc 
+                     WHERE jc.FK_id_jugador = j.PK_id_jugador AND jc.FK_id_categoria = @IdCategoria
+                 ))
+@@ -189,10 +187,8 @@
+ 
+         private JugadorDetalle MapearJugador(SqlDataReader reader)
+         {
+-            int cuotasVencidas = reader.GetInt32(reader.GetOrdinal("CuotasVencidas"));
+-            string estadoCuota = cuotasVencidas >= 2
+-                ? "INHABILITADO"
+-                : (cuotasVencidas == 1 ? "PENDIENTE" : "AL DÍA");
++            // La deuda no se calcula acá: la informa el Portal Administrativo y la completa el controlador.
++            string estadoCuota = "SIN VERIFICAR";
+ 
+             var categoriasIdsString = reader.IsDBNull(reader.GetOrdinal("CategoriasIdsString"))
+                 ? string.Empty
+@@ -251,7 +247,7 @@
+         public async Task<bool> ActualizarPerfilAsync(int id, JugadorDetalle jugador)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -263,7 +259,7 @@
+                         apellido = @Apellido, 
+                         dni = @Dni, 
+                         fecha_de_nacimiento = @FechaNacimiento, 
+-                        genero = @Genero, 
++                        genero = COALESCE(@Genero, p.genero), 
+                         domicilio = @Domicilio
+                     FROM PERSONAS p 
+                     INNER JOIN JUGADORES j ON p.PK_id_persona = j.FK_id_persona
+@@ -399,21 +395,20 @@
+         public async Task<int> CrearAsync(JugadorAlta dto)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+             {
+                 var queryPersona = @"
+-                    INSERT INTO PERSONAS (nombre, apellido, dni, fecha_de_nacimiento)
+-                    OUTPUT INSERTED.PK_id_persona
+-                    VALUES (@Nombre, @Apellido, @Dni, @FechaNacimiento);";
++                    DECLARE @nuevo TABLE (id INT); INSERT INTO PERSONAS (nombre, apellido, dni, fecha_de_nacimiento, genero) OUTPUT INSERTED.PK_id_persona INTO @nuevo VALUES (@Nombre, @Apellido, @Dni, @FechaNacimiento, @Genero); SELECT id FROM @nuevo;";
+ 
+                 using var cmdPersona = new SqlCommand(queryPersona, connection, transaction);
+                 cmdPersona.Parameters.AddWithValue("@Nombre", dto.Nombre);
+                 cmdPersona.Parameters.AddWithValue("@Apellido", dto.Apellido);
+                 cmdPersona.Parameters.AddWithValue("@Dni", dto.Dni);
+                 cmdPersona.Parameters.AddWithValue("@FechaNacimiento", dto.FechaNacimiento ?? (object)DBNull.Value);
++                cmdPersona.Parameters.AddWithValue("@Genero", dto.Genero);
+ 
+                 int idPersona = Convert.ToInt32(await cmdPersona.ExecuteScalarAsync());
+ 
+@@ -421,9 +416,7 @@
+                 if (!string.IsNullOrEmpty(dto.Categoria)) int.TryParse(dto.Categoria, out idCategoria);
+ 
+                 var queryJugador = @"
+-                    INSERT INTO JUGADORES (FK_id_persona, FK_id_categoria, posicion_cancha, club_origen, ficha_medica_liga)
+-                    OUTPUT INSERTED.PK_id_jugador
+-                    VALUES (@IdPersona, @IdCategoria, @Posicion, @ClubOrigen, @AptoFisico);";
++                    DECLARE @nuevo TABLE (id INT); INSERT INTO JUGADORES (FK_id_persona, FK_id_categoria, posicion_cancha, club_origen, ficha_medica_liga) OUTPUT INSERTED.PK_id_jugador INTO @nuevo VALUES (@IdPersona, @IdCategoria, @Posicion, @ClubOrigen, @AptoFisico); SELECT id FROM @nuevo;";
+ 
+                 using var cmdJugador = new SqlCommand(queryJugador, connection, transaction);
+                 cmdJugador.Parameters.AddWithValue("@IdPersona", idPersona);
+@@ -482,9 +475,7 @@
+                     else
+                     {
+                         var queryInsertPersonaTutor = @"
+-                            INSERT INTO PERSONAS (nombre, apellido, dni)
+-                            OUTPUT INSERTED.PK_id_persona
+-                            VALUES (@TutorNombre, @TutorApellido, @TutorDni);";
++                            DECLARE @nuevo TABLE (id INT); INSERT INTO PERSONAS (nombre, apellido, dni) OUTPUT INSERTED.PK_id_persona INTO @nuevo VALUES (@TutorNombre, @TutorApellido, @TutorDni); SELECT id FROM @nuevo;";
+                         using var cmdInsertPersonaTutor = new SqlCommand(queryInsertPersonaTutor, connection, transaction);
+                         cmdInsertPersonaTutor.Parameters.AddWithValue("@TutorNombre", dto.Tutor.Nombre.Trim());
+                         cmdInsertPersonaTutor.Parameters.AddWithValue("@TutorApellido", dto.Tutor.Apellido.Trim());
+@@ -518,8 +509,8 @@
+                         int idResponsableMax = Convert.ToInt32(await cmdMaxResp.ExecuteScalarAsync());
+ 
+                         var queryInsertResp = @"
+-                            INSERT INTO RESPONSABLES (PK_id_responsable, FK_id_persona, email, telefono)
+-                            VALUES (@IdResponsable, @IdPersonaTutor, @Email, @Telefono);";
++                            SET IDENTITY_INSERT dbo.RESPONSABLES ON; INSERT INTO RESPONSABLES (PK_id_responsable, FK_id_persona, email, telefono)
++                            VALUES (@IdResponsable, @IdPersonaTutor, @Email, @Telefono); SET IDENTITY_INSERT dbo.RESPONSABLES OFF;";
+                         using var cmdInsertResp = new SqlCommand(queryInsertResp, connection, transaction);
+                         cmdInsertResp.Parameters.AddWithValue("@IdResponsable", idResponsableMax);
+                         cmdInsertResp.Parameters.AddWithValue("@IdPersonaTutor", idPersonaTutor);
+@@ -535,8 +526,8 @@
+                     int idVinculo = Convert.ToInt32(await cmdMaxVinculo.ExecuteScalarAsync());
+ 
+                     var queryInsertVinculo = @"
+-                        INSERT INTO JUGADORES_RESPONSABLES (PK_id_jugador_responsable, FK_id_jugador, FK_id_responsable, parentesco)
+-                        VALUES (@IdVinculo, @IdJugador, @IdResponsable, @Parentesco);";
++                        SET IDENTITY_INSERT dbo.JUGADORES_RESPONSABLES ON; INSERT INTO JUGADORES_RESPONSABLES (PK_id_jugador_responsable, FK_id_jugador, FK_id_responsable, parentesco)
++                        VALUES (@IdVinculo, @IdJugador, @IdResponsable, @Parentesco); SET IDENTITY_INSERT dbo.JUGADORES_RESPONSABLES OFF;";
+                     using var cmdInsertVinculo = new SqlCommand(queryInsertVinculo, connection, transaction);
+                     cmdInsertVinculo.Parameters.AddWithValue("@IdVinculo", idVinculo);
+                     cmdInsertVinculo.Parameters.AddWithValue("@IdJugador", idJugador);
+@@ -555,92 +546,31 @@
+             }
+         }
+ 
++        // Baja logica: el jugador deja de figurar en los listados y de poder ingresar, pero se conserva todo su historial
++        // (pagos, descuentos, asistencias, ficha medica) y su persona. Si vuelve, se lo da de alta de nuevo.
+         public async Task<bool> EliminarAsync(int idJugador)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
+-            using var transaction = connection.BeginTransaction();
+-
+-            try
+-            {
+-                var queryPersona = "SELECT FK_id_persona FROM JUGADORES WHERE PK_id_jugador = @idJugador";
+-                int? idPersona = null;
+-                using (var cmdPersona = new SqlCommand(queryPersona, connection, transaction))
+-                {
+-                    cmdPersona.Parameters.AddWithValue("@idJugador", idJugador);
+-                    var result = await cmdPersona.ExecuteScalarAsync();
+-                    if (result != null && result != DBNull.Value)
+-                    {
+-                        idPersona = Convert.ToInt32(result);
+-                    }
+-                }
+-
+-                if (!idPersona.HasValue)
+-                {
+-                    await transaction.RollbackAsync();
+-                    return false;
+-                }
+-
+-                var queriesEliminacion = new[]
+-                {
+-                    "DELETE FROM JUGADORES_PARTIDOS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM ASISTENCIAS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM PAGOS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM JUGADORES_DESCUENTOS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM FICHAS_MEDICAS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM JUGADORES_RESPONSABLES WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM JUGADORES_CATEGORIAS WHERE FK_id_jugador = @idJugador",
+-                    "DELETE FROM JUGADORES WHERE PK_id_jugador = @idJugador"
+-                };
+-
+-                foreach (var sql in queriesEliminacion)
+-                {
+-                    using var cmd = new SqlCommand(sql, connection, transaction);
+-                    cmd.Parameters.AddWithValue("@idJugador", idJugador);
+-                    await cmd.ExecuteNonQueryAsync();
+-                }
++            await connection.OpenAuditadaAsync();
+ 
+-                var queryVerificarStaff = "SELECT COUNT(*) FROM USUARIOS WHERE FK_id_persona = @idPersona";
+-                int usuariosVinculados = 0;
+-                using (var cmdVerif = new SqlCommand(queryVerificarStaff, connection, transaction))
+-                {
+-                    cmdVerif.Parameters.AddWithValue("@idPersona", idPersona.Value);
+-                    usuariosVinculados = Convert.ToInt32(await cmdVerif.ExecuteScalarAsync());
+-                }
+-
+-                var queryVerificarResponsable = @"
+-                    SELECT COUNT(*) 
+-                    FROM RESPONSABLES r 
+-                    INNER JOIN JUGADORES_RESPONSABLES jr ON r.PK_id_responsable = jr.FK_id_responsable 
+-                    WHERE r.FK_id_persona = @idPersona";
+-                int responsablesVinculados = 0;
+-                using (var cmdVerifResp = new SqlCommand(queryVerificarResponsable, connection, transaction))
+-                {
+-                    cmdVerifResp.Parameters.AddWithValue("@idPersona", idPersona.Value);
+-                    responsablesVinculados = Convert.ToInt32(await cmdVerifResp.ExecuteScalarAsync());
+-                }
++            const string query = @"
++                UPDATE JUGADORES
++                SET fecha_baja = CASE
++                        WHEN fecha_alta > CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'Argentina Standard Time' AS DATE) THEN fecha_alta
++                        ELSE CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'Argentina Standard Time' AS DATE) END
++                WHERE PK_id_jugador = @idJugador AND fecha_baja IS NULL;
+ 
+-                if (usuariosVinculados == 0 && responsablesVinculados == 0)
+-                {
+-                    using var cmdDelPersona = new SqlCommand("DELETE FROM PERSONAS WHERE PK_id_persona = @idPersona", connection, transaction);
+-                    cmdDelPersona.Parameters.AddWithValue("@idPersona", idPersona.Value);
+-                    await cmdDelPersona.ExecuteNonQueryAsync();
+-                }
++                SELECT CASE WHEN EXISTS (SELECT 1 FROM JUGADORES WHERE PK_id_jugador = @idJugador) THEN 1 ELSE 0 END;";
+ 
+-                await transaction.CommitAsync();
+-                return true;
+-            }
+-            catch
+-            {
+-                await transaction.RollbackAsync();
+-                throw;
+-            }
++            using var command = new SqlCommand(query, connection);
++            command.Parameters.AddWithValue("@idJugador", idJugador);
++            return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+         }
+ 
+         public async Task<TutorDetalle?> BuscarTutorPorDniAsync(string dni)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT TOP 1
+@@ -681,7 +611,7 @@
+         public async Task<bool> GuardarTutorAsync(int idJugador, string dni, string nombre, string apellido, string parentesco, string telefono, string? email)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -719,9 +649,7 @@
+                     else
+                     {
+                         const string queryInP = @"
+-                            INSERT INTO PERSONAS (nombre, apellido, dni)
+-                            OUTPUT INSERTED.PK_id_persona
+-                            VALUES (@Nombre, @Apellido, @Dni);";
++                            DECLARE @nuevo TABLE (id INT); INSERT INTO PERSONAS (nombre, apellido, dni) OUTPUT INSERTED.PK_id_persona INTO @nuevo VALUES (@Nombre, @Apellido, @Dni); SELECT id FROM @nuevo;";
+                         using var cmdInP = new SqlCommand(queryInP, connection, transaction);
+                         cmdInP.Parameters.AddWithValue("@Nombre", nombre.Trim());
+                         cmdInP.Parameters.AddWithValue("@Apellido", apellido.Trim());
+@@ -757,8 +685,8 @@
+                         }
+ 
+                         const string queryInR = @"
+-                            INSERT INTO RESPONSABLES (PK_id_responsable, FK_id_persona, telefono, email)
+-                            VALUES (@IdResp, @IdPersona, @Telefono, @Email);";
++                            SET IDENTITY_INSERT dbo.RESPONSABLES ON; INSERT INTO RESPONSABLES (PK_id_responsable, FK_id_persona, telefono, email)
++                            VALUES (@IdResp, @IdPersona, @Telefono, @Email); SET IDENTITY_INSERT dbo.RESPONSABLES OFF;";
+                         using var cmdInR = new SqlCommand(queryInR, connection, transaction);
+                         cmdInR.Parameters.AddWithValue("@IdResp", nextRespId);
+                         cmdInR.Parameters.AddWithValue("@IdPersona", idPersonaTutor);
+@@ -799,8 +727,8 @@
+                         }
+ 
+                         const string queryInV = @"
+-                            INSERT INTO JUGADORES_RESPONSABLES (PK_id_jugador_responsable, FK_id_responsable, FK_id_jugador, parentesco)
+-                            VALUES (@IdVinculo, @IdResp, @IdJugador, @Parentesco);";
++                            SET IDENTITY_INSERT dbo.JUGADORES_RESPONSABLES ON; INSERT INTO JUGADORES_RESPONSABLES (PK_id_jugador_responsable, FK_id_responsable, FK_id_jugador, parentesco)
++                            VALUES (@IdVinculo, @IdResp, @IdJugador, @Parentesco); SET IDENTITY_INSERT dbo.JUGADORES_RESPONSABLES OFF;";
+                         using var cmdInV = new SqlCommand(queryInV, connection, transaction);
+                         cmdInV.Parameters.AddWithValue("@IdVinculo", nextVinculoId);
+                         cmdInV.Parameters.AddWithValue("@IdResp", idResponsable);
+diff -ruN a/CACC.DAO/StaffDao.cs b/CACC.DAO/StaffDao.cs
+--- a/CACC.DAO/StaffDao.cs	2026-10-18 17:45:35.060715700 -0300
++++ b/CACC.DAO/StaffDao.cs	2026-10-18 18:07:15.259690900 -0300
+@@ -23,7 +23,7 @@
+         {
+             var listaStaff = new List<Persona>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT p.PK_id_persona, p.genero, p.fecha_de_nacimiento, p.dni, p.nombre, p.apellido
+@@ -54,7 +54,7 @@
+         {
+             var lista = new List<StaffDetalle>();
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT 
+@@ -123,7 +123,7 @@
+         public async Task<StaffDetalle?> ObtenerPorIdAsync(int idStaff)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             const string query = @"
+                 SELECT 
+@@ -191,7 +191,7 @@
+         public async Task<int> CrearAsync(StaffAlta staff)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+@@ -338,7 +338,7 @@
+         public async Task<bool> ActualizarAsync(StaffEdicion staff)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+             using var transaction = connection.BeginTransaction();
+ 
+             try
+diff -ruN a/CACC.DAO/UsuarioDao.cs b/CACC.DAO/UsuarioDao.cs
+--- a/CACC.DAO/UsuarioDao.cs	2026-10-18 17:45:35.137839500 -0300
++++ b/CACC.DAO/UsuarioDao.cs	2026-10-18 18:07:15.271208500 -0300
+@@ -19,7 +19,7 @@
+         public async Task<UsuarioAuthData?> ObtenerUsuarioParaAuthAsync(string email)
+         {
+             using var connection = new SqlConnection(_connectionString);
+-            await connection.OpenAsync();
++            await connection.OpenAuditadaAsync();
+ 
+             // Quitamos la condición de la contraseña de la query SQL
+             var queryUsuario = @"
+diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeudaAdministrativo.cs
+--- a/CACC.Entities/EstadoDeudaAdministrativo.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 18:07:15.415359600 -0300
+@@ -0,0 +1,18 @@
++namespace CACC.Entities
++{
++    // Estado de deuda de un jugador tal como lo informa el Portal Administrativo (api/estado-deuda). Ese portal es la
++    // única fuente de verdad de la deuda: acá no se calcula nada.
++    public class EstadoDeudaAdministrativo
++    {
++        public string Dni { get; set; } = string.Empty;
++        public int IdJugador { get; set; }
++
++        // "habilitado", "solo_entrenamientos", "inhabilitado" o "baja".
++        public string Estado { get; set; } = string.Empty;
++        public bool AccesoPermitido { get; set; }
++        public int CuotasVencidas { get; set; }
++        public decimal DeudaTotal { get; set; }
++        public bool EnTermino { get; set; }
++        public string? FechaBaja { get; set; }
++    }
++}
+diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
+--- a/CACC.Entities/JugadorAlta.cs	2026-10-18 17:45:35.643286100 -0300
++++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 18:07:15.140244100 -0300
+@@ -6,6 +6,7 @@
+         public string Nombre { get; set; } = string.Empty;
+         public string Apellido { get; set; } = string.Empty;
+         public DateTime? FechaNacimiento { get; set; }
++        public string Genero { get; set; } = string.Empty;
+         public string Categoria { get; set; } = string.Empty;
+         public string? Posicion { get; set; }
+         public string? ClubOrigen { get; set; }
+diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
+--- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 17:45:36.793255700 -0300
++++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 18:07:15.426829300 -0300
+@@ -1,30 +1,186 @@
+ using System.Text.Json;
+ using CACC.API.Controllers;
+ using CACC.API.DTOs;
++using CACC.API.Services;
+ using CACC.DAO;
+ using CACC.Entities;
+ using Microsoft.AspNetCore.Mvc;
++using Microsoft.Extensions.Options;
+ using Xunit;
+ namespace CACC.Tests;
+-public class AsistenciasControllerTests {
+- [Theory][InlineData(0,true,true)][InlineData(1,true,true)][InlineData(2,false,false)]
+- public async Task AppliesDebtPolicyAtomically(int cuotas,bool acceso,bool registrada){
+-  var dao=new FakeDao(new ResultadoIngreso{PersonaEncontrada=true,CuotasVencidas=cuotas,AccesoPermitido=acceso,AsistenciaRegistrada=registrada});
+-  var result=await new AsistenciasController(dao).VerificarYRegistrar(new AsistenciaRequestDto{Dni="40111222"});
+-  var ok=Assert.IsType<OkObjectResult>(result); using var doc=JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+-  Assert.Equal(acceso,doc.RootElement.GetProperty("accesoPermitido").GetBoolean()); Assert.Equal(registrada,doc.RootElement.GetProperty("asistenciaRegistrada").GetBoolean()); Assert.Equal(1,dao.Calls);
+- }
+- [Fact] public async Task ReportsIdempotentSameDayScan(){
+-  var dao=new FakeDao(new ResultadoIngreso{PersonaEncontrada=true,CuotasVencidas=0,AccesoPermitido=true,AsistenciaRegistrada=true,YaRegistrada=true});
+-  var result=await new AsistenciasController(dao).VerificarYRegistrar(new AsistenciaRequestDto{Dni="40111222"});
+-  var ok=Assert.IsType<OkObjectResult>(result); using var doc=JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+-  Assert.True(doc.RootElement.GetProperty("yaRegistrada").GetBoolean()); Assert.Contains("ya estaba registrada",doc.RootElement.GetProperty("mensaje").GetString());
+- }
+- [Theory][InlineData("El DNI no pertenece a un jugador.")][InlineData("El DNI está asociado a múltiples jugadores.")]
+- public async Task RejectsMissingOrAmbiguousPlayers(string error){
+-  var result=await new AsistenciasController(new FakeDao(new ResultadoIngreso{Error=error})).VerificarYRegistrar(new AsistenciaRequestDto{Dni="40111222"});
+-  var invalid=Assert.IsType<UnprocessableEntityObjectResult>(result); using var doc=JsonDocument.Parse(JsonSerializer.Serialize(invalid.Value)); Assert.Equal(error,doc.RootElement.GetProperty("message").GetString());
+- }
+- private sealed class FakeDao(ResultadoIngreso result):IAsistenciaDao { public int Calls{get;private set;} public Task<ResultadoIngreso> ProcesarIngresoAsync(string d,string o){Calls++;return Task.FromResult(result);} }
+-}
+ 
++// El QR decide con la deuda que informa el Portal Administrativo y registra la asistencia en la base del club.
++public class AsistenciasControllerTests
++{
++    private static EstadoDeudaAdministrativo Estado(string estado, int cuotas, bool acceso, decimal deuda = 0) =>
++        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso, CuotasVencidas = cuotas, DeudaTotal = deuda };
++
++    private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Permitir") =>
++        new(dao, deuda, Options.Create(new AdministrativoApiOptions { SiNoResponde = siNoResponde }));
++
++    private static JsonElement Cuerpo(IActionResult resultado, out int? codigo)
++    {
++        var objeto = Assert.IsAssignableFrom<ObjectResult>(resultado);
++        codigo = objeto.StatusCode;
++        return JsonDocument.Parse(JsonSerializer.Serialize(objeto.Value)).RootElement.Clone();
++    }
++
++    private static readonly AsistenciaRequestDto Pedido = new() { Dni = " 40111222 " };
++
++    [Theory]
++    [InlineData("habilitado", 0, "Asistencia registrada. Acceso permitido.")]
++    [InlineData("solo_entrenamientos", 1, "Asistencia registrada. El jugador posee un mes de deuda.")]
++    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, int cuotas, string mensaje)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, true, cuotas * 1000m)));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out var codigo);
++
++        Assert.Equal(200, codigo);
++        Assert.True(cuerpo.GetProperty("accesoPermitido").GetBoolean());
++        Assert.True(cuerpo.GetProperty("asistenciaRegistrada").GetBoolean());
++        Assert.True(cuerpo.GetProperty("verificado").GetBoolean());
++        Assert.Equal(estado, cuerpo.GetProperty("estado").GetString());
++        Assert.Equal(mensaje, cuerpo.GetProperty("mensaje").GetString());
++        Assert.Equal(cuotas, cuerpo.GetProperty("cuotasVencidas").GetInt32());
++        Assert.Equal(1, dao.Llamadas);
++        Assert.Equal(AsistenciaDao.Permitido, dao.UltimoEstado);
++        Assert.Equal("40111222", dao.UltimoDni);
++        Assert.Equal("40111222", deuda.UltimoDni);
++    }
++
++    [Theory]
++    [InlineData("inhabilitado", 2)]
++    [InlineData("inhabilitado", 5)]
++    [InlineData("baja", 0)]
++    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado, int cuotas)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, false, 5000)));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
++
++        Assert.False(cuerpo.GetProperty("accesoPermitido").GetBoolean());
++        Assert.False(cuerpo.GetProperty("asistenciaRegistrada").GetBoolean());
++        Assert.True(cuerpo.GetProperty("verificado").GetBoolean());
++        Assert.Equal(0, dao.Llamadas);
++        Assert.StartsWith("Acceso denegado", cuerpo.GetProperty("mensaje").GetString());
++    }
++
++    [Fact]
++    public async Task UnSegundoEscaneoDelMismoDia_SeInformaSinDuplicar()
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true, YaRegistrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", 0, true)));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
++
++        Assert.True(cuerpo.GetProperty("yaRegistrada").GetBoolean());
++        Assert.Contains("ya estaba registrada", cuerpo.GetProperty("mensaje").GetString());
++    }
++
++    [Theory]
++    [InlineData(ResultadoConsulta.NoEsJugador, "El DNI no pertenece a un jugador.")]
++    [InlineData(ResultadoConsulta.Ambiguo, "El DNI está asociado a múltiples jugadores.")]
++    public async Task UnDniQueNoIdentificaAUnJugador_SeRechaza(ResultadoConsulta resultado, string mensaje)
++    {
++        var dao = new FakeDao(new ResultadoIngreso());
++        var resp = await Controlador(dao, new FakeDeuda(new ConsultaEstadoDeuda(resultado))).VerificarYRegistrar(Pedido);
++
++        var invalido = Assert.IsType<UnprocessableEntityObjectResult>(resp);
++        Assert.Equal(mensaje, JsonDocument.Parse(JsonSerializer.Serialize(invalido.Value)).RootElement.GetProperty("message").GetString());
++        Assert.Equal(0, dao.Llamadas);
++    }
++
++    [Fact]
++    public async Task SinDni_EsUnPedidoInvalido()
++    {
++        var dao = new FakeDao(new ResultadoIngreso());
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok));
++        Assert.IsType<BadRequestObjectResult>(await Controlador(dao, deuda).VerificarYRegistrar(new AsistenciaRequestDto { Dni = "  " }));
++        Assert.Null(deuda.UltimoDni);
++    }
++
++    [Theory]
++    [InlineData(401)]
++    [InlineData(403)]
++    public async Task SiElAdministrativoRechazaLaSesion_NoSeDejaPasar(int codigo)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
++        var resp = await Controlador(dao, new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.SinPermiso, CodigoHttp: codigo))).VerificarYRegistrar(Pedido);
++
++        Cuerpo(resp, out var estado);
++        Assert.Equal(codigo, estado);
++        Assert.Equal(0, dao.Llamadas);
++    }
++
++    [Fact]
++    public async Task SiElAdministrativoNoResponde_ConPoliticaPermitir_PasaMarcadoSinVerificar()
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda, "Permitir").VerificarYRegistrar(Pedido), out _);
++
++        Assert.True(cuerpo.GetProperty("accesoPermitido").GetBoolean());
++        Assert.False(cuerpo.GetProperty("verificado").GetBoolean());
++        Assert.Equal("sin_verificar", cuerpo.GetProperty("estado").GetString());
++        Assert.Equal(AsistenciaDao.SinVerificar, dao.UltimoEstado);
++        Assert.Contains("no respondió", dao.UltimaObservacion);
++    }
++
++    [Fact]
++    public async Task SiElAdministrativoNoResponde_UnaBajaSigueSinPasar()
++    {
++        // El DAO solo encuentra jugadores activos: aunque no se pueda verificar la deuda, una baja no entra.
++        var dao = new FakeDao(new ResultadoIngreso { Error = "El DNI no pertenece a un jugador activo." });
++        var resp = await Controlador(dao, new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde)), "Permitir").VerificarYRegistrar(Pedido);
++
++        Assert.IsType<UnprocessableEntityObjectResult>(resp);
++    }
++
++    [Theory]
++    [InlineData("Denegar")]
++    [InlineData("denegar")]
++    public async Task SiElAdministrativoNoResponde_ConPoliticaDenegar_NoPasaNadie(string politica)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
++        var resp = await Controlador(dao, new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde)), politica).VerificarYRegistrar(Pedido);
++
++        Cuerpo(resp, out var codigo);
++        Assert.Equal(503, codigo);
++        Assert.Equal(0, dao.Llamadas);
++    }
++
++    private sealed class FakeDao(ResultadoIngreso resultado) : IAsistenciaDao
++    {
++        public int Llamadas { get; private set; }
++        public string? UltimoDni { get; private set; }
++        public string? UltimoEstado { get; private set; }
++        public string? UltimaObservacion { get; private set; }
++
++        public Task<ResultadoIngreso> RegistrarAsistenciaAsync(string dni, string estadoAcceso, string? observaciones)
++        {
++            Llamadas++;
++            UltimoDni = dni;
++            UltimoEstado = estadoAcceso;
++            UltimaObservacion = observaciones;
++            return Task.FromResult(resultado);
++        }
++    }
++
++    private sealed class FakeDeuda(ConsultaEstadoDeuda consulta) : IEstadoDeudaClient
++    {
++        public string? UltimoDni { get; private set; }
++
++        public Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default)
++        {
++            UltimoDni = dni;
++            return Task.FromResult(consulta);
++        }
++
++        public Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default) =>
++            Task.FromResult<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?>(null);
++    }
++}
+diff -ruN a/CACC.Tests/DonQrSqlContractTests.cs b/CACC.Tests/DonQrSqlContractTests.cs
+--- a/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 17:45:36.945907800 -0300
++++ b/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 18:07:15.430392900 -0300
+@@ -1,14 +1,58 @@
+-using Xunit;
+-namespace CACC.Tests;
+-public class DonQrSqlContractTests {
+- [Fact] public void SchemaAndDaoUseRealPlayerForeignKey(){
+-  var root=FindRepositoryRoot(); var schema=File.ReadAllText(Path.Combine(root,"Bbdd CACC.sql")); var dao=ReadDao(root);
+-  Assert.Contains("[FK_id_jugador] [int] NULL",schema); Assert.Contains("v.FK_id_jugador=j.PK_id_jugador",dao); Assert.Contains("INSERT INTO ASISTENCIAS(FK_id_jugador,fecha_hora,estado_acceso)",dao); Assert.DoesNotContain("INSERT INTO ASISTENCIAS (FK_id_persona",dao); Assert.DoesNotContain("ASISTENCIAS(FK_id_jugador,fecha_hora,estado_acceso,observaciones)",dao);
+- }
+- [Fact] public void DaoSerializesResolutionAndSameDayIdempotency(){
+-  var dao=ReadDao(FindRepositoryRoot()); Assert.Contains("IsolationLevel.Serializable",dao); Assert.Contains("JUGADORES j WITH (UPDLOCK, HOLDLOCK)",dao); Assert.Contains("ASISTENCIAS WITH (UPDLOCK,HOLDLOCK)",dao); Assert.Contains("matches.Count != 1",dao); Assert.Contains("fecha_hora>=CONVERT(date,GETDATE())",dao); Assert.Contains("result.YaRegistrada",dao); Assert.Contains("transaction.RollbackAsync()",dao); Assert.Contains("await using var transaction",dao); Assert.Contains("catch",dao); Assert.Contains("await transaction.RollbackAsync()",dao);
+- }
+- private static string ReadDao(string root)=>File.ReadAllText(Path.Combine(root,"BackEnd","CACC.DAO","AsistenciaDao.cs"));
+- private static string FindRepositoryRoot(){for(var d=new DirectoryInfo(AppContext.BaseDirectory);d is not null;d=d.Parent)if(File.Exists(Path.Combine(d.FullName,"Bbdd CACC.sql")))return d.FullName;throw new DirectoryNotFoundException("No se encontró la raíz del repositorio.");}
+-}
+-
++using Xunit;
++namespace CACC.Tests;
++
++// Contrato del DAO del QR con la base unificada (se comprueba contra el texto del DAO porque no hay base en estas pruebas).
++public class DonQrSqlContractTests
++{
++    [Fact]
++    public void ElDaoRegistraLaAsistenciaDeUnJugadorActivoYNoCalculaLaDeuda()
++    {
++        var dao = ReadDao(FindBackEnd());
++        Assert.Contains("INSERT INTO ASISTENCIAS(FK_id_jugador,fecha_hora,estado_acceso,observaciones)", dao);
++        Assert.DoesNotContain("INSERT INTO ASISTENCIAS (FK_id_persona", dao);
++        // Las bajas no pasan y la deuda la informa el Portal Administrativo: el DAO no la lee ni la vista puente ni nada parecido.
++        Assert.Contains("j.activo=1", dao);
++        Assert.DoesNotContain("VISTA_ESTADO_DEUDA", dao);
++        Assert.DoesNotContain("PAGOS", dao);
++    }
++
++    [Fact]
++    public void ElDaoSerializaLaResolucionYLaIdempotenciaDelMismoDia()
++    {
++        var dao = ReadDao(FindBackEnd());
++        Assert.Contains("IsolationLevel.Serializable", dao);
++        Assert.Contains("JUGADORES j WITH (UPDLOCK, HOLDLOCK)", dao);
++        Assert.Contains("ASISTENCIAS WITH (UPDLOCK,HOLDLOCK)", dao);
++        Assert.Contains("ids.Count != 1", dao);
++        Assert.Contains("fecha_hora>=CONVERT(date,GETDATE())", dao);
++        Assert.Contains("result.YaRegistrada", dao);
++        Assert.Contains("await using var transaction", dao);
++        Assert.Contains("await transaction.RollbackAsync()", dao);
++    }
++
++    [Fact]
++    public void TodasLasConexionesDeLosDaoSeAbrenConAuditoria()
++    {
++        var carpeta = Path.Combine(FindBackEnd(), "CACC.DAO");
++        foreach (var archivo in Directory.GetFiles(carpeta, "*.cs"))
++        {
++            if (Path.GetFileName(archivo) == "ConexionAuditada.cs") continue;
++            var texto = File.ReadAllText(archivo);
++            // Abrir con OpenAsync a secas dejaría las escrituras sin responsable en la auditoría.
++            Assert.False(texto.Contains("connection.OpenAsync(") || texto.Contains("connection.Open("),
++                $"{Path.GetFileName(archivo)} abre una conexión sin OpenAuditadaAsync.");
++        }
++    }
++
++    private static string ReadDao(string root) => File.ReadAllText(Path.Combine(root, "CACC.DAO", "AsistenciaDao.cs"));
++
++    private static string FindBackEnd()
++    {
++        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
++        {
++            if (File.Exists(Path.Combine(d.FullName, "CACC.slnx"))) return d.FullName;
++            if (File.Exists(Path.Combine(d.FullName, "BackEnd", "CACC.slnx"))) return Path.Combine(d.FullName, "BackEnd");
++        }
++        throw new DirectoryNotFoundException("No se encontró la carpeta BackEnd.");
++    }
++}
+diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientTests.cs
+--- a/CACC.Tests/EstadoDeudaClientTests.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 18:07:15.444358400 -0300
+@@ -0,0 +1,170 @@
++using System.Net;
++using System.Text;
++using CACC.API.Services;
++using CACC.DAO;
++using Microsoft.AspNetCore.Http;
++using Microsoft.Extensions.Logging.Abstractions;
++using Xunit;
++namespace CACC.Tests;
++
++public class EstadoDeudaClientTests
++{
++    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"cuotasVencidas\":0,\"deudaTotal\":0,\"enTermino\":true,\"fechaBaja\":null}";
++
++    private static EstadoDeudaClient Cliente(Func<HttpRequestMessage, HttpResponseMessage> responder, out Manejador manejador, string? token = "token-del-usuario")
++    {
++        manejador = new Manejador(responder);
++        var contexto = new DefaultHttpContext();
++        if (token is not null) contexto.Request.Headers.Authorization = "Bearer " + token;
++        return new EstadoDeudaClient(
++            new HttpClient(manejador) { BaseAddress = new Uri("http://administrativo.test/") },
++            new HttpContextAccessor { HttpContext = contexto },
++            NullLogger<EstadoDeudaClient>.Instance);
++    }
++
++    private static HttpResponseMessage Json(HttpStatusCode codigo, string cuerpo) =>
++        new(codigo) { Content = new StringContent(cuerpo, Encoding.UTF8, "application/json") };
++
++    [Fact]
++    public async Task ConsultaPorDni_ReenviaElTokenDelUsuarioYLeeElEstado()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, Habilitado), out var manejador);
++
++        var consulta = await cliente.PorDniAsync("40111222");
++
++        Assert.Equal(ResultadoConsulta.Ok, consulta.Resultado);
++        Assert.Equal("habilitado", consulta.Estado!.Estado);
++        Assert.True(consulta.Estado.AccesoPermitido);
++        Assert.Equal(7, consulta.Estado.IdJugador);
++        Assert.Equal("Bearer token-del-usuario", manejador.Pedidos[0].Headers.Authorization!.ToString());
++        Assert.Equal("/api/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
++    }
++
++    [Theory]
++    [InlineData(HttpStatusCode.BadRequest, ResultadoConsulta.DniInvalido)]
++    [InlineData(HttpStatusCode.NotFound, ResultadoConsulta.NoEsJugador)]
++    [InlineData(HttpStatusCode.Conflict, ResultadoConsulta.Ambiguo)]
++    [InlineData(HttpStatusCode.Unauthorized, ResultadoConsulta.SinPermiso)]
++    [InlineData(HttpStatusCode.Forbidden, ResultadoConsulta.SinPermiso)]
++    [InlineData(HttpStatusCode.InternalServerError, ResultadoConsulta.NoResponde)]
++    [InlineData(HttpStatusCode.BadGateway, ResultadoConsulta.NoResponde)]
++    public async Task LosCodigosDelAdministrativoSeTraducen(HttpStatusCode codigo, ResultadoConsulta esperado)
++    {
++        var cliente = Cliente(_ => Json(codigo, "{}"), out _);
++        Assert.Equal(esperado, (await cliente.PorDniAsync("40111222")).Resultado);
++    }
++
++    [Fact]
++    public async Task SiLaConexionFalla_ContaComoNoResponde()
++    {
++        var cliente = Cliente(_ => throw new HttpRequestException("sin conexión"), out _);
++        Assert.Equal(ResultadoConsulta.NoResponde, (await cliente.PorDniAsync("40111222")).Resultado);
++    }
++
++    [Fact]
++    public async Task SiElTiempoSeAgota_ContaComoNoResponde()
++    {
++        var cliente = Cliente(_ => throw new TaskCanceledException("timeout"), out _);
++        Assert.Equal(ResultadoConsulta.NoResponde, (await cliente.PorDniAsync("40111222")).Resultado);
++    }
++
++    [Fact]
++    public async Task UnaRespuestaIlegible_ContaComoNoResponde()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, "esto no es json"), out _);
++        Assert.Equal(ResultadoConsulta.NoResponde, (await cliente.PorDniAsync("40111222")).Resultado);
++    }
++
++    [Fact]
++    public async Task UnaCancelacionPedidaPorQuienLlama_SePropaga()
++    {
++        var cliente = Cliente(_ => throw new TaskCanceledException("cancelado"), out _);
++        using var cancelacion = new CancellationTokenSource();
++        cancelacion.Cancel();
++        await Assert.ThrowsAsync<TaskCanceledException>(() => cliente.PorDniAsync("40111222", cancelacion.Token));
++    }
++
++    [Fact]
++    public async Task ElLoteSeArmaPorDniYDevuelveSoloLosJugadores()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, "{\"items\":[" + Habilitado + "],\"noEncontrados\":[\"1\"]}"), out var manejador);
++
++        var lote = await cliente.PorLoteAsync(new[] { "40111222", "40111222", "1" });
++
++        Assert.NotNull(lote);
++        Assert.Single(lote!);
++        Assert.Equal("habilitado", lote["40111222"].Estado);
++        Assert.Single(manejador.Pedidos);
++        Assert.Contains("\"dnis\":[\"40111222\",\"1\"]", manejador.Cuerpos[0]);
++    }
++
++    [Fact]
++    public async Task ElLoteSeParteEnTandasDe500()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, "{\"items\":[]}"), out var manejador);
++
++        await cliente.PorLoteAsync(Enumerable.Range(10000000, 1200).Select(n => n.ToString()));
++
++        Assert.Equal(3, manejador.Pedidos.Count);
++    }
++
++    [Fact]
++    public async Task SiElLoteFalla_SeDevuelveNull()
++    {
++        Assert.Null(await Cliente(_ => Json(HttpStatusCode.ServiceUnavailable, "{}"), out _).PorLoteAsync(new[] { "40111222" }));
++        Assert.Null(await Cliente(_ => throw new HttpRequestException("caído"), out _).PorLoteAsync(new[] { "40111222" }));
++    }
++
++    [Fact]
++    public async Task UnLoteVacio_NoLlamaAlAdministrativo()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, "{}"), out var manejador);
++        var lote = await cliente.PorLoteAsync(Array.Empty<string>());
++        Assert.Empty(lote!);
++        Assert.Empty(manejador.Pedidos);
++    }
++
++    [Theory]
++    [InlineData("habilitado", "AL DÍA")]
++    [InlineData("solo_entrenamientos", "PENDIENTE")]
++    [InlineData("inhabilitado", "INHABILITADO")]
++    [InlineData("baja", "BAJA")]
++    public void ElTextoDeCuotaSigueAlEstadoDelAdministrativo(string estado, string texto) =>
++        Assert.Equal(texto, EstadoCuotaTexto.De(new CACC.Entities.EstadoDeudaAdministrativo { Estado = estado }));
++
++    [Fact]
++    public void SinDatosDelAdministrativo_ElTextoEsSinVerificar() =>
++        Assert.Equal("SIN VERIFICAR", EstadoCuotaTexto.De(null));
++
++    [Fact]
++    public async Task ElUsuarioDeLaAuditoriaViajaPorLasLlamadasAsincronicas()
++    {
++        ContextoAuditoria.IdUsuario = 42;
++        await Task.Yield();
++        Assert.Equal(42, ContextoAuditoria.IdUsuario);
++        ContextoAuditoria.IdUsuario = null;
++    }
++
++    [Theory]
++    [InlineData("Permitir", true)]
++    [InlineData("permitir", true)]
++    [InlineData("", true)]
++    [InlineData("Denegar", false)]
++    [InlineData(" DENEGAR ", false)]
++    public void LaPoliticaSeLeeSinImportarMayusculas(string valor, bool permite) =>
++        Assert.Equal(permite, new AdministrativoApiOptions { SiNoResponde = valor }.PermiteSiNoResponde);
++
++    public sealed class Manejador(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
++    {
++        public List<HttpRequestMessage> Pedidos { get; } = new();
++        public List<string> Cuerpos { get; } = new();
++
++        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
++        {
++            cancellationToken.ThrowIfCancellationRequested();
++            Pedidos.Add(request);
++            Cuerpos.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
++            return responder(request);
++        }
++    }
++}

@@ -95,8 +95,10 @@ function Aplicar($carpeta, $archivo) {
 $yaAdaptado = (Select-String -Path (Join-Path $n 'DaoLibrary\AuthDao.cs') -Pattern 'FROM USUARIOS' -Quiet)
 if ($yaAdaptado) { Write-Host "  El repo del Administrativo ya esta adaptado a la base unificada: se omite nuestro.patch." }
 else { Aplicar $n (Join-Path $raiz 'parches\nuestro.patch') }
-Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos-provisorio.patch')
-if (Test-Path (Join-Path $raiz 'parches\ellos.patch')) { Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos.patch') }
+# El parche definitivo (todo lo de docs/hallazgos-otro-equipo.md) reemplaza al provisorio: se aplica uno solo sobre el main del Deportivo.
+$definitivo = Join-Path $raiz 'parches\ellos-definitivo.patch'
+if (Test-Path $definitivo) { Aplicar (Join-Path $Destino 'ellos\BackEnd') $definitivo }
+else { Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos-provisorio.patch') }
 
 # ---- 3. configuracion (clave JWT compartida, aleatoria por armado)
 Paso "Escribiendo la configuracion"
@@ -112,6 +114,7 @@ Set-Content (Join-Path $n 'ApiGestion\appsettings.Development.json') $json -Enco
 $json2 = @{
     JwtSettings = @{ Key = $clave; Issuer = 'CACC-Unificado'; Audience = 'CACC-Unificado'; ExpirationMinutes = '60' }
     ConnectionStrings = @{ DefaultConnection = $cadena }
+    AdministrativoApi = @{ BaseUrl = 'http://localhost:5318'; TimeoutSegundos = '3'; SiNoResponde = 'Permitir' }
 } | ConvertTo-Json -Depth 5
 Set-Content (Join-Path $Destino 'ellos\BackEnd\CACC.API\appsettings.Development.json') $json2 -Encoding UTF8
 Write-Host "  Sin credenciales de correo: los enlaces de activacion se escriben en el log de la API."
