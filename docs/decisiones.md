@@ -12,7 +12,7 @@
 
 # Pendiente
 1. Llevar `parches/nuestro.patch` a una rama del repo real, actualizar sus pruebas y apuntar sus configuraciones a la base unificada.
-2. ~~API de estado de deuda (por DNI y por lote)~~ Hecha (docs/api-estado-deuda.md, rama feat/base-unificada). Falta el aviso de "jugadores sin género" en el Resumen General.
+2. ~~API de estado de deuda (por DNI y por lote)~~ Hecha (docs/api-estado-deuda.md, rama feat/base-unificada). Aviso de "jugadores sin género" en el Resumen General: hecho (GET api/jugadores-sin-genero, solo SuperAdmin).
 3. Inscripción por género y `inicio_cobranza` en el código del Administrativo.
 4. ~~Que el token del Administrador (rol 2) no lleve permisos del Deportivo.~~ Hecho (ClaimsDelToken, rama feat/base-unificada).
 5. Parche definitivo para el Deportivo (`hallazgos-otro-equipo.md`).
