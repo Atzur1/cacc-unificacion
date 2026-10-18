@@ -91,7 +91,10 @@ function Aplicar($carpeta, $archivo) {
     } finally { Pop-Location }
     Write-Host "  OK $(Split-Path $archivo -Leaf)"
 }
-Aplicar $n (Join-Path $raiz 'parches\nuestro.patch')
+# Si el repo del Administrativo ya trae los cambios (rama feat/base-unificada o posterior), el parche no se aplica de nuevo.
+$yaAdaptado = (Select-String -Path (Join-Path $n 'DaoLibrary\AuthDao.cs') -Pattern 'FROM USUARIOS' -Quiet)
+if ($yaAdaptado) { Write-Host "  El repo del Administrativo ya esta adaptado a la base unificada: se omite nuestro.patch." }
+else { Aplicar $n (Join-Path $raiz 'parches\nuestro.patch') }
 Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos-provisorio.patch')
 if (Test-Path (Join-Path $raiz 'parches\ellos.patch')) { Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos.patch') }
 

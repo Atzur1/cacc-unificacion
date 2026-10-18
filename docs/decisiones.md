@@ -14,7 +14,7 @@
 1. Llevar `parches/nuestro.patch` a una rama del repo real, actualizar sus pruebas y apuntar sus configuraciones a la base unificada.
 2. API de estado de deuda (por DNI y por lote) y aviso de "jugadores sin género" en el Resumen General.
 3. Inscripción por género y `inicio_cobranza` en el código del Administrativo.
-4. Que el token del Administrador (rol 2) no lleve permisos del Deportivo.
+4. ~~Que el token del Administrador (rol 2) no lleve permisos del Deportivo.~~ Hecho (ClaimsDelToken, rama feat/base-unificada).
 5. Parche definitivo para el Deportivo (`hallazgos-otro-equipo.md`).
 6. Decidir qué hace el QR si la API de estado de deuda no responde (permitir y marcar "sin verificar", o denegar).
 7. Probar las pantallas de los dos portales y el traspaso de sesión entre ellos.

@@ -149,7 +149,7 @@ $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja e
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
-Gap 'Cuentas' '[pendiente nuestro] el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)
+Chk 'Cuentas' 'el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)
 
 # ================= 5. CIERRE DE SESION
 Write-Host '--- 5. Cierre de sesion' -ForegroundColor Cyan
