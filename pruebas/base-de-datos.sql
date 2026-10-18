@@ -33,7 +33,7 @@ SELECT 'T6b jugador sin deuda no aparece: '+CAST((SELECT COUNT(*) FROM VISTA_EST
 -- 3. un solo pendiente por cuota
 BEGIN TRY INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES (@a,1,1,@mesS,0,'Cuota'); PRINT 'T7 FALLO: dejo duplicar la cuota pendiente'; END TRY BEGIN CATCH PRINT 'T7 ok duplicado rechazado'; END CATCH
 -- 4. inscripcion por genero
-INSERT ARANCELES_INSCRIPCION(monto,vigente_desde) VALUES (70000,'2026-10-01');
+BEGIN TRY INSERT ARANCELES_INSCRIPCION(monto,vigente_desde) VALUES (70000,'2026-10-01'); PRINT 'T8b FALLO: dejo cargar un arancel de inscripcion sin genero'; END TRY BEGIN CATCH PRINT 'T8b ok: un arancel de inscripcion sin genero se rechaza'; END CATCH
 INSERT ARANCELES_INSCRIPCION(monto,vigente_desde,genero) VALUES (0,'2026-10-01','Femenino');
 INSERT ARANCELES_INSCRIPCION(monto,vigente_desde,genero) VALUES (70000,'2026-10-01','Masculino');
 BEGIN TRY INSERT ARANCELES_INSCRIPCION(monto,vigente_desde,genero) VALUES (5,'2026-10-01','Femenino'); PRINT 'T8 FALLO duplicado genero'; END TRY BEGIN CATCH PRINT 'T8 ok: inscripcion femenina monto 0 permitida y duplicado por genero rechazado'; END CATCH

@@ -140,6 +140,25 @@ Chk 'EstadoDeuda' 'consulta por lote separa encontrados y no encontrados' ($r.s 
 $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $null; Chk 'EstadoDeuda' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TM; Chk 'EstadoDeuda' 'la Medica (solo Deportivo) puede consultar con su token' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TD; Chk 'EstadoDeuda' 'el DT de la categoria del jugador (3) puede consultar' ($r.s -eq 200) "HTTP $($r.s)"
+# ================= 2c. INSCRIPCION POR GENERO (las mujeres hoy no pagan; el club puede empezar a cobrarla)
+Write-Host '--- 2c. Inscripcion por genero' -ForegroundColor Cyan
+$alta = { param($dni, $genero) Call 'POST' "$A/api/players" $T @{ firstName = 'Prueba'; lastName = "Insc$dni"; dni = $dni; birthDate = '2012-03-03'; gender = $genero; categoryId = 3 } }
+$r = & $alta '42000001' 'Masculino'; Chk 'Inscripcion' 'sin arancel masculino vigente no hay alta de varones' ($r.s -ge 400 -and $r.s -lt 500) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/enrollmentfees" $T @{ gender = 'Masculino'; amount = 70000; startDate = (& $f $hoy) }; Chk 'Inscripcion' 'se programa la inscripcion masculina' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
+$r = & $alta '42000002' 'Femenino'; $j = if ($r.s -eq 201) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Inscripcion' 'una mujer sin arancel femenino se da de alta sin inscripcion' ($r.s -eq 201 -and $null -eq $j.enrollmentFeeAmount) "HTTP $($r.s) inscripcion=$($j.enrollmentFeeAmount)"
+$r = Call 'POST' "$A/api/enrollmentfees" $T @{ gender = 'Femenino'; amount = 30000; startDate = (& $f $hoy) }; Chk 'Inscripcion' 'el mismo dia se programa tambien la femenina (cada genero tiene su historia)' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
+$r = Call 'POST' "$A/api/enrollmentfees" $T @{ gender = 'Femenino'; amount = 31000; startDate = (& $f $hoy) }; Chk 'Inscripcion' 'no se repite un arancel del mismo genero el mismo dia' ($r.s -eq 400) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/enrollmentfees" $T @{ amount = 31000; startDate = (& $f $hoy.AddDays(1)) }; Chk 'Inscripcion' 'el genero es obligatorio' ($r.s -eq 400) "HTTP $($r.s)"
+$r = & $alta '42000003' 'Femenino'; $j = if ($r.s -eq 201) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Inscripcion' 'con arancel femenino vigente, la alta de una mujer paga la inscripcion femenina ($30.000)' ($r.s -eq 201 -and $j.enrollmentFeeAmount -eq 30000) "HTTP $($r.s) inscripcion=$($j.enrollmentFeeAmount)"
+$r = & $alta '42000004' 'Masculino'; $j = if ($r.s -eq 201) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Inscripcion' 'la alta de un varon sigue pagando la inscripcion masculina ($70.000)' ($r.s -eq 201 -and $j.enrollmentFeeAmount -eq 70000) "HTTP $($r.s) inscripcion=$($j.enrollmentFeeAmount)"
+$r = Call 'GET' "$A/api/enrollmentfees" $T; $lista = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { @() }
+Chk 'Inscripcion' 'el historial trae el genero de cada arancel' ($r.s -eq 200 -and @($lista | Where-Object { $_.gender -eq 'Femenino' }).Count -ge 1 -and @($lista | Where-Object { $_.gender -eq 'Masculino' }).Count -ge 1) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/enrollmentfees/current?gender=Femenino" $T; Chk 'Inscripcion' 'consulta del arancel vigente por genero' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).amount -eq 30000) "HTTP $($r.s)"
+# $0 = deja de cobrarse: se programa para manana y hoy sigue vigente el de $30.000
+$r = Call 'POST' "$A/api/enrollmentfees" $T @{ gender = 'Femenino'; amount = 0; startDate = (& $f $hoy.AddDays(1)) }; Chk 'Inscripcion' 'se puede programar $0 (ese genero deja de pagar inscripcion)' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',
@@ -166,6 +185,7 @@ $TA = Login '30000002' 'Camioneros-Club-7731'; Chk 'Cuentas' 'Ana entra por DNI'
 $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja en el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/enrollmentfees" $TA @{ gender = 'Femenino'; amount = 1; startDate = (& $f $hoy.AddDays(5)) }; Chk 'Inscripcion' 'el Administrador (rol 2) no programa aranceles de inscripcion: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/jugadores-sin-genero" $TA; Chk 'SinGenero' 'el aviso de genero es solo del SuperAdmin: el Administrador (rol 2) recibe 403' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Administrador (rol 2) no consulta el estado deportivo: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
