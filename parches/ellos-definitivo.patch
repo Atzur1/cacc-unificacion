@@ -1,6 +1,6 @@
 diff -ruN a/CACC.API/Authorization/UserScopeService.cs b/CACC.API/Authorization/UserScopeService.cs
 --- a/CACC.API/Authorization/UserScopeService.cs	2026-10-18 17:45:32.490348700 -0300
-+++ b/CACC.API/Authorization/UserScopeService.cs	2026-10-18 18:07:15.338588700 -0300
++++ b/CACC.API/Authorization/UserScopeService.cs	2026-10-18 18:12:45.119872900 -0300
 @@ -33,7 +33,7 @@
      public async Task<bool> CanReadPlayerAsync(ClaimsPrincipal user, int playerId)
      {
@@ -12,7 +12,7 @@ diff -ruN a/CACC.API/Authorization/UserScopeService.cs b/CACC.API/Authorization/
          var categories = GetAssignedCategoryIds(user);
 diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers/AsistenciasController.cs
 --- a/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 17:45:32.591690500 -0300
-+++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 18:07:15.456693600 -0300
++++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 18:12:45.156423500 -0300
 @@ -1,7 +1,10 @@
  using CACC.API.DTOs;
 +using CACC.API.Services;
@@ -152,7 +152,7 @@ diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers
  }
 diff -ruN a/CACC.API/Controllers/AuthController.cs b/CACC.API/Controllers/AuthController.cs
 --- a/CACC.API/Controllers/AuthController.cs	2026-10-18 17:45:32.638446400 -0300
-+++ b/CACC.API/Controllers/AuthController.cs	2026-10-18 18:07:15.351573100 -0300
++++ b/CACC.API/Controllers/AuthController.cs	2026-10-18 18:12:45.121888400 -0300
 @@ -25,6 +25,13 @@
          [HttpPost("login")]
          public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
@@ -169,7 +169,7 @@ diff -ruN a/CACC.API/Controllers/AuthController.cs b/CACC.API/Controllers/AuthCo
                  return BadRequest(new { message = "El usuario y la contraseña son obligatorios." });
 diff -ruN a/CACC.API/Controllers/CategoriasController.cs b/CACC.API/Controllers/CategoriasController.cs
 --- a/CACC.API/Controllers/CategoriasController.cs	2026-10-18 17:45:32.684718600 -0300
-+++ b/CACC.API/Controllers/CategoriasController.cs	2026-10-18 18:07:15.327072400 -0300
++++ b/CACC.API/Controllers/CategoriasController.cs	2026-10-18 18:12:45.117365900 -0300
 @@ -110,7 +110,16 @@
          [Authorize(Roles = AppRoles.Administradores)]
          public async Task<IActionResult> EliminarCategoria(int id)
@@ -190,7 +190,7 @@ diff -ruN a/CACC.API/Controllers/CategoriasController.cs b/CACC.API/Controllers/
                  return NotFound(new { message = $"Categoría con ID {id} no encontrada para eliminar." });
 diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/JugadoresController.cs
 --- a/CACC.API/Controllers/JugadoresController.cs	2026-10-18 17:45:32.861417900 -0300
-+++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 18:07:15.328581100 -0300
++++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 18:12:45.118369500 -0300
 @@ -1,4 +1,5 @@
  using CACC.API.DTOs;
 +using CACC.API.Services;
@@ -288,7 +288,7 @@ diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/J
              {
 diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.cs
 --- a/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 17:45:33.163680400 -0300
-+++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 18:07:15.088876900 -0300
++++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 18:12:44.970431200 -0300
 @@ -16,6 +16,11 @@
          [JsonPropertyName("fechaNacimiento")]
          public DateTime? FechaNacimiento { get; set; }
@@ -303,7 +303,7 @@ diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.c
  
 diff -ruN a/CACC.API/Program.cs b/CACC.API/Program.cs
 --- a/CACC.API/Program.cs	2026-10-18 17:45:33.950998500 -0300
-+++ b/CACC.API/Program.cs	2026-10-18 18:07:15.362605100 -0300
++++ b/CACC.API/Program.cs	2026-10-18 18:12:45.135397900 -0300
 @@ -5,6 +5,7 @@
  using System.Text;
  using QuestPDF.Infrastructure;
@@ -413,7 +413,7 @@ diff -ruN a/CACC.API/Program.cs b/CACC.API/Program.cs
  app.MapControllers();
 diff -ruN a/CACC.API/Security/SesionVigente.cs b/CACC.API/Security/SesionVigente.cs
 --- a/CACC.API/Security/SesionVigente.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.API/Security/SesionVigente.cs	2026-10-18 18:07:15.468204600 -0300
++++ b/CACC.API/Security/SesionVigente.cs	2026-10-18 18:12:45.159423300 -0300
 @@ -0,0 +1,24 @@
 +using Microsoft.Data.SqlClient;
 +using System.Data;
@@ -441,7 +441,7 @@ diff -ruN a/CACC.API/Security/SesionVigente.cs b/CACC.API/Security/SesionVigente
 +}
 diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeudaClient.cs
 --- a/CACC.API/Services/EstadoDeudaClient.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 18:07:15.483909000 -0300
++++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 18:12:45.159925500 -0300
 @@ -0,0 +1,174 @@
 +using System.Net;
 +using System.Net.Http.Headers;
@@ -464,14 +464,14 @@ diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeu
 +        public int TimeoutSegundos { get; set; } = 3;
 +
 +        // Qué hace el QR si el Portal Administrativo no responde:
++        //   "Denegar" (por defecto): no deja pasar a nadie hasta que se pueda consultar la deuda.
 +        //   "Permitir": deja pasar a un jugador activo y marca la asistencia SIN_VERIFICAR para revisarla después.
-+        //   "Denegar": no deja pasar a nadie hasta que se pueda consultar la deuda.
-+        public string SiNoResponde { get; set; } = Permitir;
++        public string SiNoResponde { get; set; } = Denegar;
 +
 +        public const string Permitir = "Permitir";
 +        public const string Denegar = "Denegar";
 +
-+        public bool PermiteSiNoResponde => !string.Equals(SiNoResponde?.Trim(), Denegar, StringComparison.OrdinalIgnoreCase);
++        public bool PermiteSiNoResponde => string.Equals(SiNoResponde?.Trim(), Permitir, StringComparison.OrdinalIgnoreCase);
 +    }
 +
 +    public enum ResultadoConsulta
@@ -619,7 +619,7 @@ diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeu
 +}
 diff -ruN a/CACC.DAO/AsistenciaDao.cs b/CACC.DAO/AsistenciaDao.cs
 --- a/CACC.DAO/AsistenciaDao.cs	2026-10-18 17:45:34.357809100 -0300
-+++ b/CACC.DAO/AsistenciaDao.cs	2026-10-18 18:07:15.377330700 -0300
++++ b/CACC.DAO/AsistenciaDao.cs	2026-10-18 18:12:45.137399300 -0300
 @@ -7,6 +7,10 @@
  {
      public class AsistenciaDao : IAsistenciaDao
@@ -720,7 +720,7 @@ diff -ruN a/CACC.DAO/AsistenciaDao.cs b/CACC.DAO/AsistenciaDao.cs
              {
 diff -ruN a/CACC.DAO/CategoriaDao.cs b/CACC.DAO/CategoriaDao.cs
 --- a/CACC.DAO/CategoriaDao.cs	2026-10-18 17:45:34.455769300 -0300
-+++ b/CACC.DAO/CategoriaDao.cs	2026-10-18 18:07:15.315503200 -0300
++++ b/CACC.DAO/CategoriaDao.cs	2026-10-18 18:12:45.105848900 -0300
 @@ -22,7 +22,7 @@
          {
              var categorias = new List<Categoria>();
@@ -981,7 +981,7 @@ diff -ruN a/CACC.DAO/CategoriaDao.cs b/CACC.DAO/CategoriaDao.cs
              try
 diff -ruN a/CACC.DAO/CategoriaEnUsoException.cs b/CACC.DAO/CategoriaEnUsoException.cs
 --- a/CACC.DAO/CategoriaEnUsoException.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.DAO/CategoriaEnUsoException.cs	2026-10-18 18:07:15.386347800 -0300
++++ b/CACC.DAO/CategoriaEnUsoException.cs	2026-10-18 18:12:45.138400000 -0300
 @@ -0,0 +1,24 @@
 +namespace CACC.DAO
 +{
@@ -1009,7 +1009,7 @@ diff -ruN a/CACC.DAO/CategoriaEnUsoException.cs b/CACC.DAO/CategoriaEnUsoExcepti
 +}
 diff -ruN a/CACC.DAO/ConexionAuditada.cs b/CACC.DAO/ConexionAuditada.cs
 --- a/CACC.DAO/ConexionAuditada.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.DAO/ConexionAuditada.cs	2026-10-18 18:07:15.399300200 -0300
++++ b/CACC.DAO/ConexionAuditada.cs	2026-10-18 18:12:45.138400000 -0300
 @@ -0,0 +1,38 @@
 +using Microsoft.Data.SqlClient;
 +
@@ -1051,7 +1051,7 @@ diff -ruN a/CACC.DAO/ConexionAuditada.cs b/CACC.DAO/ConexionAuditada.cs
 +}
 diff -ruN a/CACC.DAO/CredentialDao.cs b/CACC.DAO/CredentialDao.cs
 --- a/CACC.DAO/CredentialDao.cs	2026-10-18 17:45:34.535953300 -0300
-+++ b/CACC.DAO/CredentialDao.cs	2026-10-18 18:07:15.192045700 -0300
++++ b/CACC.DAO/CredentialDao.cs	2026-10-18 18:12:45.032995000 -0300
 @@ -11,7 +11,7 @@
      public async Task<Guid?> GetOrCreateActiveCredentialForPlayerAsync(int playerId, CancellationToken ct)
      {
@@ -1081,7 +1081,7 @@ diff -ruN a/CACC.DAO/CredentialDao.cs b/CACC.DAO/CredentialDao.cs
          await using var reader = await command.ExecuteReaderAsync(ct);
 diff -ruN a/CACC.DAO/FichaMedicaDao.cs b/CACC.DAO/FichaMedicaDao.cs
 --- a/CACC.DAO/FichaMedicaDao.cs	2026-10-18 17:45:34.583670800 -0300
-+++ b/CACC.DAO/FichaMedicaDao.cs	2026-10-18 18:07:15.202560500 -0300
++++ b/CACC.DAO/FichaMedicaDao.cs	2026-10-18 18:12:45.033990200 -0300
 @@ -18,7 +18,7 @@
          public async Task<FichaMedica?> ObtenerPorJugadorIdAsync(int idJugador)
          {
@@ -1111,7 +1111,7 @@ diff -ruN a/CACC.DAO/FichaMedicaDao.cs b/CACC.DAO/FichaMedicaDao.cs
                  UPDATE FICHAS_MEDICAS SET 
 diff -ruN a/CACC.DAO/IAsistenciaDao.cs b/CACC.DAO/IAsistenciaDao.cs
 --- a/CACC.DAO/IAsistenciaDao.cs	2026-10-18 17:45:34.636787600 -0300
-+++ b/CACC.DAO/IAsistenciaDao.cs	2026-10-18 18:07:15.405305300 -0300
++++ b/CACC.DAO/IAsistenciaDao.cs	2026-10-18 18:12:45.139901600 -0300
 @@ -1,3 +1,3 @@
  using CACC.Entities;
  namespace CACC.DAO;
@@ -1119,7 +1119,7 @@ diff -ruN a/CACC.DAO/IAsistenciaDao.cs b/CACC.DAO/IAsistenciaDao.cs
 +public interface IAsistenciaDao { Task<ResultadoIngreso> RegistrarAsistenciaAsync(string dni, string estadoAcceso, string? observaciones); }
 diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
 --- a/CACC.DAO/JugadorDao.cs	2026-10-18 17:45:34.976962300 -0300
-+++ b/CACC.DAO/JugadorDao.cs	2026-10-18 18:07:15.301968500 -0300
++++ b/CACC.DAO/JugadorDao.cs	2026-10-18 18:12:45.092705700 -0300
 @@ -43,7 +43,6 @@
                  j.peso AS Peso,
                  j.altura AS Altura,
@@ -1426,7 +1426,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          cmdInV.Parameters.AddWithValue("@IdResp", idResponsable);
 diff -ruN a/CACC.DAO/StaffDao.cs b/CACC.DAO/StaffDao.cs
 --- a/CACC.DAO/StaffDao.cs	2026-10-18 17:45:35.060715700 -0300
-+++ b/CACC.DAO/StaffDao.cs	2026-10-18 18:07:15.259690900 -0300
++++ b/CACC.DAO/StaffDao.cs	2026-10-18 18:12:45.052645200 -0300
 @@ -23,7 +23,7 @@
          {
              var listaStaff = new List<Persona>();
@@ -1474,7 +1474,7 @@ diff -ruN a/CACC.DAO/StaffDao.cs b/CACC.DAO/StaffDao.cs
              try
 diff -ruN a/CACC.DAO/UsuarioDao.cs b/CACC.DAO/UsuarioDao.cs
 --- a/CACC.DAO/UsuarioDao.cs	2026-10-18 17:45:35.137839500 -0300
-+++ b/CACC.DAO/UsuarioDao.cs	2026-10-18 18:07:15.271208500 -0300
++++ b/CACC.DAO/UsuarioDao.cs	2026-10-18 18:12:45.064160200 -0300
 @@ -19,7 +19,7 @@
          public async Task<UsuarioAuthData?> ObtenerUsuarioParaAuthAsync(string email)
          {
@@ -1486,7 +1486,7 @@ diff -ruN a/CACC.DAO/UsuarioDao.cs b/CACC.DAO/UsuarioDao.cs
              var queryUsuario = @"
 diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeudaAdministrativo.cs
 --- a/CACC.Entities/EstadoDeudaAdministrativo.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 18:07:15.415359600 -0300
++++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 18:12:45.140905100 -0300
 @@ -0,0 +1,18 @@
 +namespace CACC.Entities
 +{
@@ -1508,7 +1508,7 @@ diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeu
 +}
 diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
 --- a/CACC.Entities/JugadorAlta.cs	2026-10-18 17:45:35.643286100 -0300
-+++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 18:07:15.140244100 -0300
++++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 18:12:45.012194800 -0300
 @@ -6,6 +6,7 @@
          public string Nombre { get; set; } = string.Empty;
          public string Apellido { get; set; } = string.Empty;
@@ -1519,7 +1519,7 @@ diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
          public string? ClubOrigen { get; set; }
 diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
 --- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 17:45:36.793255700 -0300
-+++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 18:07:15.426829300 -0300
++++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 18:12:45.153427100 -0300
 @@ -1,30 +1,186 @@
  using System.Text.Json;
  using CACC.API.Controllers;
@@ -1559,7 +1559,7 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +    private static EstadoDeudaAdministrativo Estado(string estado, int cuotas, bool acceso, decimal deuda = 0) =>
 +        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso, CuotasVencidas = cuotas, DeudaTotal = deuda };
 +
-+    private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Permitir") =>
++    private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Denegar") =>
 +        new(dao, deuda, Options.Create(new AdministrativoApiOptions { SiNoResponde = siNoResponde }));
 +
 +    private static JsonElement Cuerpo(IActionResult resultado, out int? codigo)
@@ -1660,7 +1660,7 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +    }
 +
 +    [Fact]
-+    public async Task SiElAdministrativoNoResponde_ConPoliticaPermitir_PasaMarcadoSinVerificar()
++    public async Task SiElAdministrativoNoResponde_ConPoliticaPermitirConfigurada_PasaMarcadoSinVerificar()
 +    {
 +        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
 +        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde));
@@ -1730,7 +1730,7 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +}
 diff -ruN a/CACC.Tests/DonQrSqlContractTests.cs b/CACC.Tests/DonQrSqlContractTests.cs
 --- a/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 17:45:36.945907800 -0300
-+++ b/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 18:07:15.430392900 -0300
++++ b/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 18:12:45.154425400 -0300
 @@ -1,14 +1,58 @@
 -using Xunit;
 -namespace CACC.Tests;
@@ -1806,8 +1806,8 @@ diff -ruN a/CACC.Tests/DonQrSqlContractTests.cs b/CACC.Tests/DonQrSqlContractTes
 +}
 diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientTests.cs
 --- a/CACC.Tests/EstadoDeudaClientTests.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 18:07:15.444358400 -0300
-@@ -0,0 +1,170 @@
++++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 18:12:45.155423500 -0300
+@@ -0,0 +1,174 @@
 +using System.Net;
 +using System.Text;
 +using CACC.API.Services;
@@ -1957,12 +1957,16 @@ diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientT
 +
 +    [Theory]
 +    [InlineData("Permitir", true)]
-+    [InlineData("permitir", true)]
-+    [InlineData("", true)]
++    [InlineData(" permitir ", true)]
++    [InlineData("", false)]
 +    [InlineData("Denegar", false)]
-+    [InlineData(" DENEGAR ", false)]
-+    public void LaPoliticaSeLeeSinImportarMayusculas(string valor, bool permite) =>
++    [InlineData("cualquier cosa", false)]
++    public void SoloPermiteSiSeConfiguraExplicitamente(string valor, bool permite) =>
 +        Assert.Equal(permite, new AdministrativoApiOptions { SiNoResponde = valor }.PermiteSiNoResponde);
++
++    [Fact]
++    public void PorDefectoNoPasaNadieSiNoResponde() =>
++        Assert.False(new AdministrativoApiOptions().PermiteSiNoResponde);
 +
 +    public sealed class Manejador(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
 +    {

@@ -114,7 +114,7 @@ Set-Content (Join-Path $n 'ApiGestion\appsettings.Development.json') $json -Enco
 $json2 = @{
     JwtSettings = @{ Key = $clave; Issuer = 'CACC-Unificado'; Audience = 'CACC-Unificado'; ExpirationMinutes = '60' }
     ConnectionStrings = @{ DefaultConnection = $cadena }
-    AdministrativoApi = @{ BaseUrl = 'http://localhost:5318'; TimeoutSegundos = '3'; SiNoResponde = 'Permitir' }
+    AdministrativoApi = @{ BaseUrl = 'http://localhost:5318'; TimeoutSegundos = '3' }
 } | ConvertTo-Json -Depth 5
 Set-Content (Join-Path $Destino 'ellos\BackEnd\CACC.API\appsettings.Development.json') $json2 -Encoding UTF8
 Write-Host "  Sin credenciales de correo: los enlaces de activacion se escriben en el log de la API."

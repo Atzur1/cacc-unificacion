@@ -56,16 +56,15 @@ la decisión de acceso y el registro de la asistencia (idempotente por día).
 | habilitado | pasa, verde |
 | solo_entrenamientos (1 cuota vencida) | pasa, amarillo |
 | inhabilitado / baja | no pasa, rojo |
-| el Administrativo no responde | **depende de `AdministrativoApi:SiNoResponde`** |
+| el Administrativo no responde | no pasa nadie (503), no se registra asistencia |
 
-`SiNoResponde = Permitir` (valor por defecto): entra solo un jugador activo, la asistencia queda con `estado_acceso = 'SIN_VERIFICAR'` y la
-pantalla muestra amarillo "Ingreso sin verificar". `Denegar`: no entra nadie hasta que el Administrativo responda (503). **Esta política
-la tiene que decidir el club.**
+Decisión del club: **si el Administrativo no responde, no pasa nadie** (`AdministrativoApi:SiNoResponde = Denegar`, valor por defecto). Existe la
+opción `Permitir` (entra solo un jugador activo y la asistencia queda `SIN_VERIFICAR`), pero no se usa.
 
 ## Configuración nueva
 
 ```json
-"AdministrativoApi": { "BaseUrl": "http://localhost:5118", "TimeoutSegundos": 3, "SiNoResponde": "Permitir" }
+"AdministrativoApi": { "BaseUrl": "http://localhost:5118", "TimeoutSegundos": 3 }
 ```
 
 Variables de entorno equivalentes: `AdministrativoApi__BaseUrl`, … En desarrollo, `BaseUrl` vale `http://localhost:5118` si no se configura.

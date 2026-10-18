@@ -206,7 +206,7 @@ $r = Call 'POST' "$B/api/auth/login" $null @{ email = '20111222'; password = $PW
 SQ "DELETE FROM ASISTENCIAS WHERE FK_id_jugador=$id" | Out-Null
 DetenerNuestro
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
-Chk 'QR' 'si el Administrativo no responde, un jugador activo pasa marcado SIN_VERIFICAR' ($r.s -eq 200 -and $j.accesoPermitido -and -not $j.verificado -and (SQ "SELECT TOP 1 estado_acceso FROM ASISTENCIAS WHERE FK_id_jugador=$id ORDER BY PK_id_asistencia DESC") -eq 'SIN_VERIFICAR') "HTTP $($r.s) $($r.b)"
+Chk 'QR' 'si el Administrativo no responde, no pasa nadie (503) y no se registra asistencia' ($r.s -eq 503 -and [int](SQ "SELECT COUNT(*) FROM ASISTENCIAS WHERE FK_id_jugador=$id") -eq 0) "HTTP $($r.s) $($r.b)"
 Chk 'Deportivo' 'sin el Administrativo el listado sigue funcionando y marca SIN VERIFICAR' ((EstadoCuotaListado $T) -eq 'SIN VERIFICAR') (EstadoCuotaListado $T)
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '10000001' }; Chk 'QR' 'sin el Administrativo, un DNI que no es de un jugador tampoco pasa' ($r.s -in 422, 503) "HTTP $($r.s)"
 ReiniciarNuestro
