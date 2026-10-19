@@ -71,7 +71,7 @@ git status</pre>
 <pre>git checkout -b feat/base-unificada</pre>
 <h3>1.4 Descargar los archivos de unificación</h3>
 <pre>cd C:\ruta\donde\quieran
-git clone &lt;url del repo cacc-unificacion&gt;</pre>
+git clone https://github.com/Atzur1/cacc-unificacion.git</pre>
 <p>De acá en adelante, <code>UNIF</code> = la carpeta <code>cacc-unificacion</code> clonada.</p>
 
 <h2>2. Paso 1 · Crear la base de datos unificada</h2>
@@ -133,7 +133,7 @@ sqlcmd -S localhost -E -C -b -i ClubCamioneros_unificada_v2_crear_base.sql</pre>
 <pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd
 dotnet build CACC.API\CACC.API.csproj
 dotnet test CACC.Tests\CACC.Tests.csproj</pre>
-<div class="box ok"><b>Resultado esperado:</b> compila sin errores y <b>56 pruebas correctas, 0 con error</b> (antes eran 18; se reescribieron las del QR porque ahora consulta al Administrativo).</div>
+<div class="box ok"><b>Resultado esperado:</b> compila sin errores y <b>59 pruebas correctas, 0 con error</b> (antes eran 18; se reescribieron las del QR porque ahora consulta al Administrativo).</div>
 
 <h2>6. Paso 5 · Aplicar el parche del FrontEnd y probarlo</h2>
 <pre>cd UNIF\parches
@@ -191,7 +191,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
   <tr><td>Sesión</td><td><code>Program.cs</code> valida en cada pedido que el usuario siga activo y que el token no esté invalidado. Cerrar sesión en un portal la cierra en ambos.</td></tr>
   <tr><td>Un solo login y una sola elección de portales</td><td><code>POST api/auth/login</code> responde 410. <b>El Deportivo ya no muestra ningún login:</b> la ruta <code>/login</code> solo recibe la sesión del Administrativo (<code>#sso=…</code>), borra el token de la barra y, si no hay sesión, redirige al login del Administrativo sin mostrar nada. <b>Se eliminó el selector de portales del Deportivo</b> (<code>admin-seleccion-portales</code>): <code>/admin/portales</code> y <code>/seleccion-portales</code> llevan a la elección de portales del Administrativo. Cerrar sesión en el Deportivo también invalida el token en el Administrativo.</td></tr>
   <tr><td>Roles</td><td>El rol 2 (Administrador del Administrativo) ya no entra al Deportivo.</td></tr>
-  <tr><td>QR y estado de cuota</td><td>La deuda ya <b>no se lee de <code>VISTA_ESTADO_DEUDA</code></b>: se consulta a <code>GET /api/estado-deuda/dni/{dni}</code> del Administrativo con el token del usuario; los listados usan una sola llamada por lote. Si el Administrativo no responde: 503 y no pasa nadie.</td></tr>
+  <tr><td>QR y estado de cuota</td><td>La deuda ya <b>no se lee de <code>VISTA_ESTADO_DEUDA</code></b>: se consulta a <code>GET /api/integracion/v1/estado-deuda/dni/{dni}</code> del Administrativo con el token del usuario; los listados usan una sola llamada por lote. <b>La respuesta trae solo el estado</b> (habilitado, solo entrenamientos, inhabilitado o baja): nunca montos ni cantidad de cuotas, y el semáforo del QR se pinta con ese estado. El contrato está en OpenAPI (<code>docs/integracion</code> del repo del Administrativo). Si el Administrativo no responde: 503 y no pasa nadie.</td></tr>
 </table>
 
 <h2>10. Problemas frecuentes</h2>
@@ -200,7 +200,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
   <tr><td>El parche “no aplica”</td><td>El repo no está en <code>afa4e60</code> o tiene cambios locales. Volver a una copia limpia de <code>main</code> o avisarnos.</td></tr>
   <tr><td>Todo da 401 en el Deportivo</td><td><code>Jwt:Key/Issuer/Audience</code> distintos a los del Administrativo, o la sesión se cerró (hay que volver a entrar por el Administrativo).</td></tr>
   <tr><td>La app no arranca: “clave de ejemplo”</td><td>Está usando la clave de <code>appsettings.json</code> fuera de Development. Configurar <code>Jwt__Key</code> real.</td></tr>
-  <tr><td>El QR responde 503</td><td>El Administrativo no está corriendo o <code>AdministrativoApi:BaseUrl</code> es incorrecta. Probar <code>http://localhost:5118/api/estado-deuda/dni/20111222</code> con un token (debe dar 404 o 200, no “sin conexión”).</td></tr>
+  <tr><td>El QR responde 503</td><td>El Administrativo no está corriendo o <code>AdministrativoApi:BaseUrl</code> es incorrecta. Probar <code>http://localhost:5118/api/integracion/v1/estado-deuda/dni/20111222</code> con un token (debe dar 404 o 200, no “sin conexión”).</td></tr>
   <tr><td>El QR responde 401/403</td><td>El usuario no tiene permiso para consultar (el rol 2 no puede) o el token venció. Entrar de nuevo.</td></tr>
   <tr><td>Error al dar de alta: género o categoría</td><td>La base rechaza altas sin género válido o sin categoría. Completar los dos campos.</td></tr>
   <tr><td>CORS: el navegador bloquea las llamadas</td><td>El frontend corre en un puerto que no está en <code>Cors:AllowedOrigins</code>. Usar 4300 o agregarlo.</td></tr>

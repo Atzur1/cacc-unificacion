@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guía para el equipo Administrativo: actualizar y probar todo</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1b1f23; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; color: #006532; }
+  h2 { font-size: 14pt; margin: 20pt 0 6pt; padding: 4pt 8pt; background: #006532; color: #fff; border-radius: 3pt; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 12pt 0 4pt; color: #006532; page-break-after: avoid; }
+  p { margin: 4pt 0 6pt; }
+  .sub { color: #555; margin-bottom: 10pt; }
+  pre { background: #f3f5f4; border: 1px solid #d5dbd8; border-left: 4px solid #008443; border-radius: 3pt; padding: 7pt 9pt; font-family: Consolas, "Courier New", monospace; font-size: 9pt; white-space: pre-wrap; word-break: break-all; margin: 5pt 0 8pt; page-break-inside: avoid; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.3pt; background: #eef1ef; padding: 0 3pt; border-radius: 2pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #c9d0cc; padding: 4pt 6pt; text-align: left; vertical-align: top; font-size: 9.8pt; }
+  th { background: #e6efe9; }
+  .box { border: 1px solid #c9d0cc; border-radius: 3pt; padding: 6pt 9pt; margin: 8pt 0; page-break-inside: avoid; }
+  .ok { background: #eaf6ee; border-color: #9ccfae; }
+  .warn { background: #fff6e0; border-color: #e7c66b; }
+  ul.checks { list-style: none; padding-left: 0; }
+  ul.checks li { margin: 3pt 0; }
+  ul.checks li::before { content: "☐  "; }
+  ol, ul { margin: 4pt 0 6pt; padding-left: 18pt; }
+  .portada { padding: 30pt 0 10pt; border-bottom: 3px solid #008443; margin-bottom: 14pt; }
+</style>
+</head>
+<body>
+
+<div class="portada">
+  <h1>Actualizar y probar todo el sistema</h1>
+  <div class="sub">Guía paso a paso para el equipo del Portal Administrativo · Club Atlético Camioneros de Córdoba · octubre de 2026</div>
+</div>
+
+<h2>0. Qué vas a lograr</h2>
+<p>Al terminar vas a tener, <b>en tu máquina</b>, los dos portales funcionando juntos con una base de datos de prueba:</p>
+<ul>
+  <li>El <b>Portal Administrativo</b> (nuestro): API y pantallas, con el cambio a la base unificada, el login único y la inscripción por género.</li>
+  <li>El <b>Portal Deportivo</b> (del otro equipo), con los cambios que le preparamos, para probar el recorrido completo: alta de jugador, cuota, cobro, QR, baja.</li>
+</ul>
+<div class="box ok"><b>No se toca nada de lo que ya tenés.</b> Todo corre sobre copias en una carpeta aparte y sobre una base nueva de prueba (<code>ClubCamionerosUnificadaV2_Prueba</code>). Tu base actual, tu <code>appsettings.Development.json</code> y tu código quedan como están.</div>
+
+<h2>1. Antes de empezar</h2>
+<h3>1.1 Qué tiene que estar instalado</h3>
+<ul class="checks">
+  <li>Git para Windows.</li>
+  <li>.NET SDK 9.</li>
+  <li>Node.js 20.19 o superior.</li>
+  <li>Google Chrome.</li>
+  <li>SQL Server (Express alcanza) con la herramienta <code>sqlcmd</code>, y que su usuario de Windows pueda crear bases (<code>localhost</code> con autenticación de Windows).</li>
+  <li>PowerShell (viene con Windows).</li>
+</ul>
+<h3>1.2 Qué repositorios hacen falta</h3>
+<table>
+  <tr><th>Repo</th><th>Para qué</th><th>Cómo se usa</th></tr>
+  <tr><td><b>Sistema-Administrativo---CACC</b> (el nuestro)</td><td>Nuestro código</td><td>Se actualiza a la rama <code>feat/base-unificada</code></td></tr>
+  <tr><td><b>cacc-unificacion</b></td><td>Scripts que arman todo el entorno y lo prueban</td><td>Se clona al lado, no se modifica</td></tr>
+  <tr><td><b>App-Club-Atletico-Camioneros</b> (el del otro equipo)</td><td>Su código</td><td>Se clona <b>solo para leerlo</b>; los scripts le aplican los cambios sobre una copia</td></tr>
+</table>
+<p>Si alguno no les abre en GitHub (repo privado), pidan acceso a la persona que les pasó esta guía.</p>
+
+<h2>2. Paso 1 · Poner nuestro repo al día</h2>
+<p>La rama con todos los cambios es <code>feat/base-unificada</code>. Abran PowerShell <b>dentro de la carpeta de nuestro repo</b>:</p>
+<pre>cd "C:\ruta\a\Sistema Administrativo - CACC"
+git status</pre>
+<h3>Si <code>git status</code> dice que hay cambios sin guardar</h3>
+<p>Antes de seguir, guárdenlos aparte (no se pierden):</p>
+<pre>git stash push -u -m "mis cambios antes de pasar a feat/base-unificada"</pre>
+<p>Si tienen <b>commits propios</b> que todavía no subieron, avisen antes de seguir: hay que ver cómo combinarlos con esta rama.</p>
+<h3>Traer y cambiar de rama</h3>
+<pre>git fetch origin
+git checkout feat/base-unificada
+git pull
+git log -1 --oneline</pre>
+<p>Debe mostrar el último commit de la rama (el mensaje empieza con <code>feat:</code>). Para confirmar que están en la rama correcta: <code>git branch --show-current</code> debe decir <code>feat/base-unificada</code>.</p>
+
+<h2>3. Paso 2 · Bajar los otros dos repos</h2>
+<pre>cd C:\ruta\donde\quieran
+git clone https://github.com/Atzur1/cacc-unificacion.git
+git clone https://github.com/NejoCHZ/App-Club-Atletico-Camioneros.git</pre>
+<p>Quedan tres carpetas hermanas. No hace falta cambiar de rama en esos dos: el del otro equipo se usa en <code>main</code>.</p>
+
+<h2>4. Paso 3 · Armar el entorno de prueba (una sola vez)</h2>
+<p>Este script hace todo: copia el código, aplica los cambios al sistema del otro equipo, crea la base de prueba con sus catálogos y 3 cuentas, escribe la configuración con una clave JWT compartida y compila las dos APIs.</p>
+<pre>cd C:\ruta\a\cacc-unificacion
+.\scripts\armar.ps1 -RepoNuestro "C:\ruta\a\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\a\App-Club-Atletico-Camioneros" -Recrear</pre>
+<ul>
+  <li>Si PowerShell bloquea el script: <code>Set-ExecutionPolicy -Scope Process Bypass</code> y repetirlo.</li>
+  <li>Al empezar muestra “Versiones esperadas…”: es solo un aviso informativo, se puede ignorar. Sí tiene que decir <b>OK ellos-definitivo.patch</b> más adelante.</li>
+  <li><code>-Recrear</code> borra y vuelve a crear <b>solamente</b> la base de prueba <code>ClubCamionerosUnificadaV2_Prueba</code>. Es seguro repetirlo.</li>
+  <li>Si el servidor SQL no es <code>localhost</code>: agregar <code>-Servidor "localhost\SQLEXPRESS"</code>.</li>
+</ul>
+<div class="box ok"><b>Resultado esperado:</b> termina con “Compilación correcta” dos veces y sin ERROR en rojo.</div>
+
+<h2>5. Paso 4 · Dos formas de probar</h2>
+<h3>A) Prueba automática (10 minutos)</h3>
+<pre>.\scripts\probar.ps1
+.\scripts\detener.ps1</pre>
+<p>Levanta las dos APIs y corre 88 verificaciones contra la base real. Debe terminar con: <code>RESUMEN: 88 PASAN | 0 FALLAN | 0 GAP</code>. El detalle queda en <code>trabajo\resultado.txt</code>.</p>
+<div class="box warn"><b>Ojo:</b> <code>probar.ps1</code> deja datos de prueba en la base. Si después quieren probar a mano, vuelvan a correr el Paso 3 (<code>armar.ps1 … -Recrear</code>) para empezar de cero.</div>
+
+<h3>B) Prueba manual en el navegador (la que más interesa)</h3>
+<pre>.\scripts\manual.ps1 -RepoNuestro "C:\ruta\a\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\a\App-Club-Atletico-Camioneros"</pre>
+<ul>
+  <li>La primera vez tarda varios minutos (instala las dependencias de los dos frontends).</li>
+  <li>Abre dos ventanas de PowerShell (los frontends). <b>Esperen</b> a que cada una diga <code>Local: http://localhost:...</code>.</li>
+  <li>Para frenar todo: <code>.\scripts\manual.ps1 -Detener</code></li>
+</ul>
+<table>
+  <tr><th>Qué</th><th>Dirección</th></tr>
+  <tr><td>Portal Administrativo (empezar siempre acá)</td><td><b>http://localhost:4200</b></td></tr>
+  <tr><td>Portal Deportivo</td><td>http://localhost:4300 (no se entra directo: se llega desde el Administrativo)</td></tr>
+  <tr><td>API Administrativo / API Deportivo</td><td>http://localhost:5118 / http://localhost:5191</td></tr>
+</table>
+<div class="box warn"><b>Importante:</b> la API que corre es una <b>copia</b> hecha en el Paso 3. Si cambian el código de la API o vuelven a hacer <code>git pull</code>, hay que repetir el Paso 3 para que la copia se actualice. Los frontends sí se leen directo de sus carpetas.</div>
+
+<h3>Cuentas de prueba</h3>
+<p>Usuario = el DNI. Contraseña de todas: <code>Camioneros.Test.2026!</code></p>
+<table>
+  <tr><th>DNI</th><th>Quién es</th><th>Adónde entra</th></tr>
+  <tr><td>20111222</td><td>SuperAdmin</td><td>Elección de portales (ve los dos)</td></tr>
+  <tr><td>30000003</td><td>Médica (solo Deportivo)</td><td>Directo al Deportivo</td></tr>
+  <tr><td>30000004</td><td>Director Técnico, categoría 3 (solo Deportivo)</td><td>Directo al Deportivo</td></tr>
+  <tr><td>30000002</td><td>Ana, candidata a Administradora</td><td>No tiene acceso hasta que el SuperAdmin la habilite (ver 6.6)</td></tr>
+</table>
+
+<h2>6. Paso 5 · Qué probar a mano</h2>
+<p>La base arranca <b>vacía</b>: no hay jugadores ni aranceles. Por eso el orden importa: primero aranceles, después alta de jugadores. Tilden cada punto.</p>
+
+<h3>6.1 Login y portales</h3>
+<ul class="checks">
+  <li>Entrar a <code>localhost:4200</code> con <code>20111222</code>: aparece la elección de portales (Administrativo, Deportivo, Personas).</li>
+  <li>Clave incorrecta: rechaza con mensaje claro.</li>
+  <li>Entrar con la Médica (<code>30000003</code>): va <b>directo</b> al Deportivo, sin otro login.</li>
+  <li>Abrir <code>localhost:4300</code> sin sesión: no muestra login, te manda al del Administrativo.</li>
+  <li>En el Deportivo, “Portales”: vuelve a la elección de portales <b>nuestra</b>, con la sesión abierta.</li>
+</ul>
+
+<h3>6.2 Aranceles (Portal Administrativo → Actualización de aranceles)</h3>
+<ul class="checks">
+  <li>Programar el arancel de cuota <b>Masculino</b> (por ejemplo $85.000, vigente desde hoy) y el <b>Femenino</b> (por ejemplo $70.000).</li>
+  <li>Programar la <b>inscripción Masculino</b> (por ejemplo $70.000).</li>
+  <li>La inscripción <b>Femenino</b> se puede programar en <b>$0</b>: se muestra como “No se cobra”.</li>
+  <li>No deja repetir un arancel del mismo género el mismo día.</li>
+  <li>El monto mínimo de cuotas sigue exigiendo más de $0 (solo la inscripción admite $0).</li>
+</ul>
+
+<h3>6.3 Alta de jugadores (tarjeta “Personas”, que abre el alta del Deportivo)</h3>
+<ul class="checks">
+  <li>Desde la elección de portales, “Personas” abre el alta de jugadores y staff del Deportivo.</li>
+  <li>Dar de alta un jugador <b>sin género</b> o <b>sin categoría</b>: no deja guardar.</li>
+  <li>Dar de alta un varón: cobra inscripción masculina. Dar de alta una mujer: cobra la femenina (o nada si está en $0).</li>
+  <li>El jugador aparece en el Administrativo (buscador de jugadores, Cuotas y pagos).</li>
+</ul>
+
+<h3>6.4 Cuotas, deuda y cobro</h3>
+<p>El generador de cuotas corre al iniciar la API y cada 6 horas, y <b>emite la cuota de un mes recién desde el día 10 del mes siguiente</b> (regla del club). Para ver morosidad sin esperar, carguen cuotas vencidas por SQL. Reemplacen <code>ID</code> por el id del jugador (<code>SELECT PK_id_jugador FROM JUGADORES</code>) y las fechas por el primer día de dos meses anteriores ya vencidos:</p>
+<pre>sqlcmd -S localhost -E -C -I -d ClubCamionerosUnificadaV2_Prueba -Q "INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES (ID,85000,85000,'2026-08-01',0,'Cuota'),(ID,85000,85000,'2026-09-01',0,'Cuota')"</pre>
+<ul class="checks">
+  <li>Deudas y morosidad: el jugador aparece como moroso con 2 cuotas vencidas.</li>
+  <li>Cobrar la cuota más vieja (Cuotas y pagos): queda 1 vencida.</li>
+  <li>Aplicar una beca o descuento (Becados y descuentos) y ver que cambia el saldo.</li>
+  <li>El dashboard (Resumen general) muestra los números esperados.</li>
+</ul>
+
+<h3>6.5 QR y estado deportivo</h3>
+<p>En el Deportivo (como SuperAdmin) abrir la pantalla del QR e ingresar el DNI a mano:</p>
+<ul class="checks">
+  <li>Jugador al día: <b>verde</b>, registra asistencia. Escanear de nuevo el mismo día: “ya registrada”.</li>
+  <li>Con 1 cuota vencida: <b>amarillo</b>, deja pasar.</li>
+  <li>Con 2 o más cuotas vencidas: <b>rojo</b>, no registra asistencia.</li>
+  <li><b>Apagar la API del Administrativo</b> (cerrar su proceso) y escanear: el QR dice que no pudo consultar la deuda y <b>no deja pasar</b>.</li>
+</ul>
+
+<h3>6.6 Habilitar una cuenta (SuperAdmin) y roles</h3>
+<ul class="checks">
+  <li>Como SuperAdmin, habilitar a Ana (<code>30000002</code>) como Administradora. El sistema no manda correo en pruebas: el <b>enlace de activación</b> aparece en el archivo <code>cacc-unificacion\trabajo\log_nuestro.txt</code>.</li>
+  <li>Ana crea su contraseña con ese enlace. Después entra por DNI y va <b>directo al Portal Administrativo</b> (no ve la elección de portales).</li>
+  <li>Ana <b>no</b> ve Auditoría y <b>no</b> puede programar aranceles de inscripción.</li>
+  <li>Ana no puede entrar al Deportivo.</li>
+</ul>
+
+<h3>6.7 Bajas y cierre de sesión</h3>
+<ul class="checks">
+  <li>Dar de baja un jugador: desaparece de los listados del Deportivo y el QR lo rechaza.</li>
+  <li>Reincorporarlo: vuelve con su historial de pagos.</li>
+  <li>Cerrar sesión en el Administrativo y, en otra pestaña con el Deportivo abierto, hacer cualquier acción: pide volver a ingresar.</li>
+</ul>
+
+<h2>7. Cómo avisar si algo falla</h2>
+<p>Para que podamos arreglarlo rápido, manden por cada problema:</p>
+<ol>
+  <li><b>Qué hicieron</b>, paso a paso (el número de punto de esta guía sirve: “6.4, tercer punto”).</li>
+  <li><b>Qué esperaban</b> y <b>qué pasó</b>.</li>
+  <li><b>Una captura</b> de la pantalla.</li>
+  <li>Las últimas líneas de los registros: <code>cacc-unificacion\trabajo\log_nuestro.txt</code> y <code>log_nuestro_err.txt</code> (API Administrativo), <code>log_ellos.txt</code> (API Deportivo). Antes de mandarlos, <b>revisen que no tengan contraseñas ni claves</b>.</li>
+</ol>
+
+<h2>8. Problemas frecuentes</h2>
+<table>
+  <tr><th>Síntoma</th><th>Qué hacer</th></tr>
+  <tr><td><code>armar.ps1</code> dice que no puede conectar o crear la base</td><td>Revisar que SQL Server esté corriendo y que <code>sqlcmd -S localhost -E -C -Q "SELECT 1"</code> funcione. Si la instancia tiene otro nombre, usar <code>-Servidor</code>.</td></tr>
+  <tr><td>“El parche no aplica”</td><td>El repo del otro equipo no está en <code>main</code> actualizado, o tiene cambios locales. Hacer <code>git checkout main</code> y <code>git pull</code> en esa carpeta.</td></tr>
+  <tr><td>Los puertos 5118, 5191, 4200 o 4300 están ocupados</td><td>Correr <code>.\scripts\manual.ps1 -Detener</code> y volver a intentar; si sigue, cerrar el programa que los usa.</td></tr>
+  <tr><td>Un frontend dice “No pasa nada” al abrirlo</td><td>Esperar a que la ventana de PowerShell correspondiente muestre <code>Local: http://localhost:...</code> (la primera compilación demora).</td></tr>
+  <tr><td>Login: “credenciales incorrectas”</td><td>Usuario = DNI sin puntos; contraseña <code>Camioneros.Test.2026!</code> con mayúsculas y signo de cierre.</td></tr>
+  <tr><td>Todo da 401 de golpe</td><td>Se cerró la sesión o venció el token. Volver a entrar por <code>localhost:4200</code>.</td></tr>
+  <tr><td>Quiero empezar de cero</td><td><code>.\scripts\manual.ps1 -Detener</code>, después repetir el Paso 3 y el Paso 4B.</td></tr>
+</table>
+
+<h2>9. Qué NO hacer</h2>
+<ul>
+  <li>No subir a git la carpeta <code>cacc-unificacion\trabajo</code> (ya está ignorada) ni ningún <code>appsettings.Development.json</code>.</li>
+  <li>No usar estas cuentas de prueba ni esta base fuera de su máquina.</li>
+  <li>No cambiar código dentro de <code>trabajo\</code>: es una copia que se pisa cada vez que corren <code>armar.ps1</code>.</li>
+</ul>
+
+<p style="margin-top:16pt; color:#555;">Más detalle técnico: <code>cacc-unificacion\docs\parche-deportivo.md</code> y <code>cacc-unificacion\docs\hallazgos-otro-equipo.md</code>.</p>
+
+</body>
+</html>

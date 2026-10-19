@@ -1,19 +1,31 @@
-# API de estado de deuda (Portal Administrativo)
+# API de integración v1: estado de habilitación de los jugadores
 
-Fuente única de "cuánto debe un jugador y qué puede hacer" para el Portal Deportivo (QR de ingreso y listados).
-Usa las reglas del Administrativo: becas y descuentos, abonos parciales y el vencimiento de la cuota el **día 10 del mes siguiente**.
-Reemplaza a la vista provisoria `VISTA_ESTADO_DEUDA`, que seguirá en la base hasta que el Deportivo termine de migrar.
+Contrato entre el Portal Administrativo (que la ofrece) y el Portal Deportivo (que la consume) para el QR de ingreso y los listados.
+El Administrativo es la **única fuente de verdad** de lo que debe un jugador: aplica becas y descuentos, abonos parciales y el
+vencimiento de la cuota el **día 10 del mes siguiente**. El Deportivo solo recibe **el estado**.
 
-Base: la URL del Portal Administrativo (en pruebas, `http://localhost:5318`).
+- **Documento OpenAPI:** [`openapi-v1.json`](openapi-v1.json). Con la API del Administrativo en Development se ve en
+  Swagger: `/swagger` → "Integración con el Deportivo v1" (o directo en `/swagger/integracion-v1/swagger.json`).
+- **Versionado:** las rutas llevan versión (`/api/integracion/v1/...`). Un cambio que rompa a quien la usa implica una versión nueva (`v2`).
+  La ruta anterior, `/api/estado-deuda/...`, sigue funcionando como alias solo mientras el Deportivo migra y se retira después.
+- **Base:** la URL del Portal Administrativo (en pruebas, `http://localhost:5118`).
+
+## Qué se comparte y qué no
+La respuesta lleva **solamente el estado de habilitación**. Nunca incluye montos, cantidad de cuotas, meses adeudados ni medios de pago.
+Agregar cualquiera de esos datos es un cambio de contrato: hay una prueba que falla si aparece (`EstadoDeuda.Tests`).
 
 ## Autenticación
-El **mismo token** de los dos portales: el Deportivo reenvía el `Authorization: Bearer ...` del usuario que está operando.
-Pueden consultar: SuperAdmin del Administrativo, `Administrador (Tesorero)`, `Don QR`, `Coordinador`, `Médico`,
-`Director Técnico` y `Preparador Físico`. **El Administrador del Administrativo (rol 2) no.**
+El **mismo token (JWT)** de los dos portales: el Deportivo reenvía el `Authorization: Bearer ...` del usuario que está operando.
+Se eligió así, en lugar de una credencial de sistema, porque cada consulta queda ligada a una persona: se aplica su alcance por categoría,
+la auditoría sabe quién preguntó y cerrar sesión corta el acceso al instante. Si algún día hace falta un consumidor sin persona detrás
+(un proceso nocturno), se agrega una credencial de servicio aparte sin tocar esto.
+
+Pueden consultar: SuperAdmin del Administrativo, `Administrador (Tesorero)`, `Don QR`, `Coordinador`, `Médico`, `Director Técnico` y
+`Preparador Físico`. **El Administrador del Administrativo (rol 2) no.**
 - Ven a cualquier jugador: SuperAdmin, Administrador (Tesorero), Don QR, Coordinador y Médico.
 - Director Técnico y Preparador Físico ven solo a los jugadores de las categorías de su token (claims `id_categoria`). Lo demás responde como "no encontrado".
 
-## `GET /api/estado-deuda/dni/{dni}`
+## `GET /api/integracion/v1/estado-deuda/dni/{dni}`
 El DNI puede venir con puntos (`41.000.001`).
 
 | Respuesta | Cuándo |
@@ -22,7 +34,7 @@ El DNI puede venir con puntos (`41.000.001`).
 | `400` | El DNI no es válido (solo números, de 6 a 9 dígitos). |
 | `404` | No es un jugador, o no es de tu alcance. |
 | `409` | El DNI corresponde a más de un jugador. |
-| `401` / `403` | Sin token / el rol no puede consultar. |
+| `401` / `403` | Sin token (o sesión cerrada) / el rol no puede consultar. |
 
 ```json
 {
@@ -30,14 +42,11 @@ El DNI puede venir con puntos (`41.000.001`).
   "idJugador": 1,
   "estado": "solo_entrenamientos",
   "accesoPermitido": true,
-  "cuotasVencidas": 1,
-  "deudaTotal": 170000.0,
-  "enTermino": false,
   "fechaBaja": null
 }
 ```
 
-## `POST /api/estado-deuda/lote`
+## `POST /api/integracion/v1/estado-deuda/lote`
 Para los listados. Hasta 500 DNI por pedido.
 ```json
 { "dnis": ["41.000.001", "42000002"] }
@@ -45,18 +54,24 @@ Para los listados. Hasta 500 DNI por pedido.
 Responde `{ "items": [ ...igual que arriba... ], "noEncontrados": ["42000002"] }`. En `noEncontrados` van los DNI inválidos,
 los que no son de un jugador y los que están fuera del alcance de quien consulta.
 
-## Significado de los campos
+## Campos
 | Campo | Qué es |
 |---|---|
-| `estado` | `habilitado` (0 cuotas vencidas), `solo_entrenamientos` (1), `inhabilitado` (2 o más), `baja` (el jugador se fue del club). |
+| `dni` | DNI del jugador, solo dígitos. |
+| `idJugador` | Identificador del jugador en la base compartida. |
+| `estado` | `habilitado`, `solo_entrenamientos` (puede entrenar, no jugar partidos oficiales), `inhabilitado` o `baja` (el jugador se fue del club). |
 | `accesoPermitido` | `true` en `habilitado` y `solo_entrenamientos`. Es lo que decide el semáforo del QR. |
-| `cuotasVencidas` | Cuotas con saldo cuyo vencimiento ya pasó. Lo que el QR del Deportivo muestra (verde 0, amarillo 1, rojo 2 o más). |
-| `deudaTotal` | Todo lo pendiente (cuotas e inscripción) con la beca ya descontada. |
-| `enTermino` | Debe algo pero nada vencido todavía. |
+| `fechaBaja` | Fecha de la baja (`yyyy-MM-dd`) si está dado de baja; si no, `null`. |
 
-## Cómo lo usaría el QR
-`AsistenciaDao.ProcesarIngresoAsync` hoy lee `VISTA_ESTADO_DEUDA`. Para pasar a esta API: en lugar de la vista, llamar a
-`GET /api/estado-deuda/dni/{dni}` con el token del usuario y usar `accesoPermitido`, `cuotasVencidas` y `deudaTotal`
-(el contrato de respuesta del QR hacia su frontend no cambia). Sigue siendo el Deportivo quien registra la asistencia.
+Cómo se llega a cada estado (lo decide el Administrativo, el Deportivo no lo calcula): 0 cuotas vencidas = `habilitado`, 1 = `solo_entrenamientos`,
+2 o más = `inhabilitado`; con baja, `baja`.
 
-**Pendiente de decidir:** qué hace el QR si esta API no responde (permitir y marcar "sin verificar", o denegar).
+## Cómo lo usa el QR del Deportivo
+Llama a `GET /api/integracion/v1/estado-deuda/dni/{dni}` con el token del usuario y usa `accesoPermitido` y `estado`: verde si `habilitado`,
+amarillo si `solo_entrenamientos`, rojo si `inhabilitado` o `baja`. Sigue siendo el Deportivo quien registra la asistencia.
+**Si esta API no responde, el QR no deja pasar a nadie** (decisión del club; `AdministrativoApi:SiNoResponde = Denegar`).
+
+## Para quien cambie la API
+1. El cambio compatible (agregar un campo opcional que no sea financiero) se hace en la misma versión; el que rompe, en `v2`.
+2. Regenerar `openapi-v1.json` desde Swagger y actualizar este documento.
+3. Avisar al equipo del Deportivo antes de mover la versión.

@@ -1,6 +1,6 @@
 diff -ruN a/CACC.API/Authorization/UserScopeService.cs b/CACC.API/Authorization/UserScopeService.cs
 --- a/CACC.API/Authorization/UserScopeService.cs	2026-10-18 17:45:32.490348700 -0300
-+++ b/CACC.API/Authorization/UserScopeService.cs	2026-10-18 18:12:45.119872900 -0300
++++ b/CACC.API/Authorization/UserScopeService.cs	2026-10-18 23:21:10.702084700 -0300
 @@ -33,7 +33,7 @@
      public async Task<bool> CanReadPlayerAsync(ClaimsPrincipal user, int playerId)
      {
@@ -12,7 +12,7 @@ diff -ruN a/CACC.API/Authorization/UserScopeService.cs b/CACC.API/Authorization/
          var categories = GetAssignedCategoryIds(user);
 diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers/AsistenciasController.cs
 --- a/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 17:45:32.591690500 -0300
-+++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 18:12:45.156423500 -0300
++++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 23:21:10.714075200 -0300
 @@ -1,7 +1,10 @@
  using CACC.API.DTOs;
 +using CACC.API.Services;
@@ -24,7 +24,7 @@ diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers
  using CACC.API.Security;
  
  namespace CACC.API.Controllers
-@@ -12,39 +15,116 @@
+@@ -12,39 +15,110 @@
      public class AsistenciasController : ControllerBase
      {
          private readonly IAsistenciaDao _asistenciaDao;
@@ -77,9 +77,7 @@ diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers
 +                    yaRegistrada = false,
 +                    verificado = true,
 +                    estado = estado.Estado,
-+                    mensaje = MensajeDenegado(estado),
-+                    deudaTotal = estado.DeudaTotal,
-+                    cuotasVencidas = estado.CuotasVencidas
++                    mensaje = MensajeDenegado(estado)
 +                });
 +            }
 +
@@ -89,29 +87,30 @@ diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers
                  return UnprocessableEntity(new { message = resultado.Error ?? "No se pudo identificar un jugador inequívoco." });
              }
 -            var mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : resultado.CuotasVencidas switch {
-+
-+            string mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : estado.CuotasVencidas switch
-+            {
-                 0 => "Asistencia registrada. Acceso permitido.",
+-                0 => "Asistencia registrada. Acceso permitido.",
 -                1 => "Asistencia registrada. El jugador posee un mes de deuda.",
 -                _ => $"Acceso denegado. El jugador posee {resultado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada."
-+                _ => "Asistencia registrada. El jugador posee un mes de deuda."
-             };
+-            };
++
++            string mensaje = resultado.YaRegistrada
++                ? "La asistencia ya estaba registrada para hoy."
++                : estado.Estado == "solo_entrenamientos"
++                    ? "Asistencia registrada. El jugador posee un mes de deuda."
++                    : "Asistencia registrada. Acceso permitido.";
              return Ok(new
              {
 -                accesoPermitido = resultado.AccesoPermitido,
 +                accesoPermitido = true,
                  asistenciaRegistrada = resultado.AsistenciaRegistrada,
                  yaRegistrada = resultado.YaRegistrada,
-+                verificado = true,
-+                estado = estado.Estado,
-                 mensaje,
+-                mensaje,
 -                deudaTotal = resultado.DeudaTotal,
 -                cuotasVencidas = resultado.CuotasVencidas
-+                deudaTotal = estado.DeudaTotal,
-+                cuotasVencidas = estado.CuotasVencidas
-+            });
-+        }
++                verificado = true,
++                estado = estado.Estado,
++                mensaje
+             });
+         }
 +
 +        private async Task<IActionResult> SinRespuestaAsync(string dni, string? observaciones)
 +        {
@@ -139,20 +138,18 @@ diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers
 +                yaRegistrada = resultado.YaRegistrada,
 +                verificado = false,
 +                estado = "sin_verificar",
-+                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar.",
-+                deudaTotal = 0m,
-+                cuotasVencidas = 0
-             });
-         }
++                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar."
++            });
++        }
 +
 +        private static string MensajeDenegado(EstadoDeudaAdministrativo estado) => estado.Estado == "baja"
 +            ? "Acceso denegado. El jugador está dado de baja y la asistencia no fue registrada."
-+            : $"Acceso denegado. El jugador posee {estado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada.";
++            : "Acceso denegado. El jugador está inhabilitado por deuda y la asistencia no fue registrada.";
      }
  }
 diff -ruN a/CACC.API/Controllers/AuthController.cs b/CACC.API/Controllers/AuthController.cs
 --- a/CACC.API/Controllers/AuthController.cs	2026-10-18 17:45:32.638446400 -0300
-+++ b/CACC.API/Controllers/AuthController.cs	2026-10-18 18:12:45.121888400 -0300
++++ b/CACC.API/Controllers/AuthController.cs	2026-10-18 23:21:10.704074500 -0300
 @@ -25,6 +25,13 @@
          [HttpPost("login")]
          public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
@@ -169,7 +166,7 @@ diff -ruN a/CACC.API/Controllers/AuthController.cs b/CACC.API/Controllers/AuthCo
                  return BadRequest(new { message = "El usuario y la contraseña son obligatorios." });
 diff -ruN a/CACC.API/Controllers/CategoriasController.cs b/CACC.API/Controllers/CategoriasController.cs
 --- a/CACC.API/Controllers/CategoriasController.cs	2026-10-18 17:45:32.684718600 -0300
-+++ b/CACC.API/Controllers/CategoriasController.cs	2026-10-18 18:12:45.117365900 -0300
++++ b/CACC.API/Controllers/CategoriasController.cs	2026-10-18 23:21:10.700072300 -0300
 @@ -110,7 +110,16 @@
          [Authorize(Roles = AppRoles.Administradores)]
          public async Task<IActionResult> EliminarCategoria(int id)
@@ -190,7 +187,7 @@ diff -ruN a/CACC.API/Controllers/CategoriasController.cs b/CACC.API/Controllers/
                  return NotFound(new { message = $"Categoría con ID {id} no encontrada para eliminar." });
 diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/JugadoresController.cs
 --- a/CACC.API/Controllers/JugadoresController.cs	2026-10-18 17:45:32.861417900 -0300
-+++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 18:12:45.118369500 -0300
++++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-18 23:21:10.701075300 -0300
 @@ -1,4 +1,5 @@
  using CACC.API.DTOs;
 +using CACC.API.Services;
@@ -288,7 +285,7 @@ diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/J
              {
 diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.cs
 --- a/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 17:45:33.163680400 -0300
-+++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 18:12:44.970431200 -0300
++++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-18 23:21:10.539469300 -0300
 @@ -16,6 +16,11 @@
          [JsonPropertyName("fechaNacimiento")]
          public DateTime? FechaNacimiento { get; set; }
@@ -303,7 +300,7 @@ diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.c
  
 diff -ruN a/CACC.API/Program.cs b/CACC.API/Program.cs
 --- a/CACC.API/Program.cs	2026-10-18 17:45:33.950998500 -0300
-+++ b/CACC.API/Program.cs	2026-10-18 18:12:45.135397900 -0300
++++ b/CACC.API/Program.cs	2026-10-18 23:21:10.705076300 -0300
 @@ -5,6 +5,7 @@
  using System.Text;
  using QuestPDF.Infrastructure;
@@ -413,7 +410,7 @@ diff -ruN a/CACC.API/Program.cs b/CACC.API/Program.cs
  app.MapControllers();
 diff -ruN a/CACC.API/Security/SesionVigente.cs b/CACC.API/Security/SesionVigente.cs
 --- a/CACC.API/Security/SesionVigente.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.API/Security/SesionVigente.cs	2026-10-18 18:12:45.159423300 -0300
++++ b/CACC.API/Security/SesionVigente.cs	2026-10-18 23:21:10.813978800 -0300
 @@ -0,0 +1,24 @@
 +using Microsoft.Data.SqlClient;
 +using System.Data;
@@ -441,7 +438,7 @@ diff -ruN a/CACC.API/Security/SesionVigente.cs b/CACC.API/Security/SesionVigente
 +}
 diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeudaClient.cs
 --- a/CACC.API/Services/EstadoDeudaClient.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 18:12:45.159925500 -0300
++++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 23:21:10.815300200 -0300
 @@ -0,0 +1,174 @@
 +using System.Net;
 +using System.Net.Http.Headers;
@@ -515,7 +512,7 @@ diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeu
 +
 +        public async Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default)
 +        {
-+            using var pedido = NuevoPedido(HttpMethod.Get, $"api/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
++            using var pedido = NuevoPedido(HttpMethod.Get, $"api/integracion/v1/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
 +            try
 +            {
 +                using var respuesta = await _http.SendAsync(pedido, ct);
@@ -558,7 +555,7 @@ diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeu
 +                for (int i = 0; i < pendientes.Count; i += MaximoPorLote)
 +                {
 +                    var tanda = pendientes.Skip(i).Take(MaximoPorLote).ToList();
-+                    using var pedido = NuevoPedido(HttpMethod.Post, "api/estado-deuda/lote");
++                    using var pedido = NuevoPedido(HttpMethod.Post, "api/integracion/v1/estado-deuda/lote");
 +                    pedido.Content = new StringContent(JsonSerializer.Serialize(new { dnis = tanda }, Json), Encoding.UTF8, "application/json");
 +                    using var respuesta = await _http.SendAsync(pedido, ct);
 +                    if (!respuesta.IsSuccessStatusCode)
@@ -619,7 +616,7 @@ diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeu
 +}
 diff -ruN a/CACC.DAO/AsistenciaDao.cs b/CACC.DAO/AsistenciaDao.cs
 --- a/CACC.DAO/AsistenciaDao.cs	2026-10-18 17:45:34.357809100 -0300
-+++ b/CACC.DAO/AsistenciaDao.cs	2026-10-18 18:12:45.137399300 -0300
++++ b/CACC.DAO/AsistenciaDao.cs	2026-10-18 23:21:10.706075400 -0300
 @@ -7,6 +7,10 @@
  {
      public class AsistenciaDao : IAsistenciaDao
@@ -720,7 +717,7 @@ diff -ruN a/CACC.DAO/AsistenciaDao.cs b/CACC.DAO/AsistenciaDao.cs
              {
 diff -ruN a/CACC.DAO/CategoriaDao.cs b/CACC.DAO/CategoriaDao.cs
 --- a/CACC.DAO/CategoriaDao.cs	2026-10-18 17:45:34.455769300 -0300
-+++ b/CACC.DAO/CategoriaDao.cs	2026-10-18 18:12:45.105848900 -0300
++++ b/CACC.DAO/CategoriaDao.cs	2026-10-18 23:21:10.689076100 -0300
 @@ -22,7 +22,7 @@
          {
              var categorias = new List<Categoria>();
@@ -981,7 +978,7 @@ diff -ruN a/CACC.DAO/CategoriaDao.cs b/CACC.DAO/CategoriaDao.cs
              try
 diff -ruN a/CACC.DAO/CategoriaEnUsoException.cs b/CACC.DAO/CategoriaEnUsoException.cs
 --- a/CACC.DAO/CategoriaEnUsoException.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.DAO/CategoriaEnUsoException.cs	2026-10-18 18:12:45.138400000 -0300
++++ b/CACC.DAO/CategoriaEnUsoException.cs	2026-10-18 23:21:10.707072900 -0300
 @@ -0,0 +1,24 @@
 +namespace CACC.DAO
 +{
@@ -1009,7 +1006,7 @@ diff -ruN a/CACC.DAO/CategoriaEnUsoException.cs b/CACC.DAO/CategoriaEnUsoExcepti
 +}
 diff -ruN a/CACC.DAO/ConexionAuditada.cs b/CACC.DAO/ConexionAuditada.cs
 --- a/CACC.DAO/ConexionAuditada.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.DAO/ConexionAuditada.cs	2026-10-18 18:12:45.138400000 -0300
++++ b/CACC.DAO/ConexionAuditada.cs	2026-10-18 23:21:10.708074000 -0300
 @@ -0,0 +1,38 @@
 +using Microsoft.Data.SqlClient;
 +
@@ -1051,7 +1048,7 @@ diff -ruN a/CACC.DAO/ConexionAuditada.cs b/CACC.DAO/ConexionAuditada.cs
 +}
 diff -ruN a/CACC.DAO/CredentialDao.cs b/CACC.DAO/CredentialDao.cs
 --- a/CACC.DAO/CredentialDao.cs	2026-10-18 17:45:34.535953300 -0300
-+++ b/CACC.DAO/CredentialDao.cs	2026-10-18 18:12:45.032995000 -0300
++++ b/CACC.DAO/CredentialDao.cs	2026-10-18 23:21:10.617978500 -0300
 @@ -11,7 +11,7 @@
      public async Task<Guid?> GetOrCreateActiveCredentialForPlayerAsync(int playerId, CancellationToken ct)
      {
@@ -1081,7 +1078,7 @@ diff -ruN a/CACC.DAO/CredentialDao.cs b/CACC.DAO/CredentialDao.cs
          await using var reader = await command.ExecuteReaderAsync(ct);
 diff -ruN a/CACC.DAO/FichaMedicaDao.cs b/CACC.DAO/FichaMedicaDao.cs
 --- a/CACC.DAO/FichaMedicaDao.cs	2026-10-18 17:45:34.583670800 -0300
-+++ b/CACC.DAO/FichaMedicaDao.cs	2026-10-18 18:12:45.033990200 -0300
++++ b/CACC.DAO/FichaMedicaDao.cs	2026-10-18 23:21:10.618982300 -0300
 @@ -18,7 +18,7 @@
          public async Task<FichaMedica?> ObtenerPorJugadorIdAsync(int idJugador)
          {
@@ -1111,7 +1108,7 @@ diff -ruN a/CACC.DAO/FichaMedicaDao.cs b/CACC.DAO/FichaMedicaDao.cs
                  UPDATE FICHAS_MEDICAS SET 
 diff -ruN a/CACC.DAO/IAsistenciaDao.cs b/CACC.DAO/IAsistenciaDao.cs
 --- a/CACC.DAO/IAsistenciaDao.cs	2026-10-18 17:45:34.636787600 -0300
-+++ b/CACC.DAO/IAsistenciaDao.cs	2026-10-18 18:12:45.139901600 -0300
++++ b/CACC.DAO/IAsistenciaDao.cs	2026-10-18 23:21:10.709073100 -0300
 @@ -1,3 +1,3 @@
  using CACC.Entities;
  namespace CACC.DAO;
@@ -1119,7 +1116,7 @@ diff -ruN a/CACC.DAO/IAsistenciaDao.cs b/CACC.DAO/IAsistenciaDao.cs
 +public interface IAsistenciaDao { Task<ResultadoIngreso> RegistrarAsistenciaAsync(string dni, string estadoAcceso, string? observaciones); }
 diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
 --- a/CACC.DAO/JugadorDao.cs	2026-10-18 17:45:34.976962300 -0300
-+++ b/CACC.DAO/JugadorDao.cs	2026-10-18 18:12:45.092705700 -0300
++++ b/CACC.DAO/JugadorDao.cs	2026-10-18 23:21:10.675072400 -0300
 @@ -43,7 +43,6 @@
                  j.peso AS Peso,
                  j.altura AS Altura,
@@ -1426,7 +1423,7 @@ diff -ruN a/CACC.DAO/JugadorDao.cs b/CACC.DAO/JugadorDao.cs
                          cmdInV.Parameters.AddWithValue("@IdResp", idResponsable);
 diff -ruN a/CACC.DAO/StaffDao.cs b/CACC.DAO/StaffDao.cs
 --- a/CACC.DAO/StaffDao.cs	2026-10-18 17:45:35.060715700 -0300
-+++ b/CACC.DAO/StaffDao.cs	2026-10-18 18:12:45.052645200 -0300
++++ b/CACC.DAO/StaffDao.cs	2026-10-18 23:21:10.637487900 -0300
 @@ -23,7 +23,7 @@
          {
              var listaStaff = new List<Persona>();
@@ -1474,7 +1471,7 @@ diff -ruN a/CACC.DAO/StaffDao.cs b/CACC.DAO/StaffDao.cs
              try
 diff -ruN a/CACC.DAO/UsuarioDao.cs b/CACC.DAO/UsuarioDao.cs
 --- a/CACC.DAO/UsuarioDao.cs	2026-10-18 17:45:35.137839500 -0300
-+++ b/CACC.DAO/UsuarioDao.cs	2026-10-18 18:12:45.064160200 -0300
++++ b/CACC.DAO/UsuarioDao.cs	2026-10-18 23:21:10.647999900 -0300
 @@ -19,7 +19,7 @@
          public async Task<UsuarioAuthData?> ObtenerUsuarioParaAuthAsync(string email)
          {
@@ -1486,12 +1483,13 @@ diff -ruN a/CACC.DAO/UsuarioDao.cs b/CACC.DAO/UsuarioDao.cs
              var queryUsuario = @"
 diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeudaAdministrativo.cs
 --- a/CACC.Entities/EstadoDeudaAdministrativo.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 18:12:45.140905100 -0300
-@@ -0,0 +1,18 @@
++++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 23:21:10.710073300 -0300
+@@ -0,0 +1,16 @@
 +namespace CACC.Entities
 +{
-+    // Estado de deuda de un jugador tal como lo informa el Portal Administrativo (api/estado-deuda). Ese portal es la
-+    // única fuente de verdad de la deuda: acá no se calcula nada.
++    // Estado de habilitación de un jugador tal como lo informa el Portal Administrativo (api/integracion/v1/estado-deuda).
++    // Ese portal es la única fuente de verdad de la deuda: acá no se calcula nada y NO se recibe ningún monto ni cantidad de
++    // cuotas (contrato v1: solo el estado).
 +    public class EstadoDeudaAdministrativo
 +    {
 +        public string Dni { get; set; } = string.Empty;
@@ -1500,15 +1498,12 @@ diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeu
 +        // "habilitado", "solo_entrenamientos", "inhabilitado" o "baja".
 +        public string Estado { get; set; } = string.Empty;
 +        public bool AccesoPermitido { get; set; }
-+        public int CuotasVencidas { get; set; }
-+        public decimal DeudaTotal { get; set; }
-+        public bool EnTermino { get; set; }
 +        public string? FechaBaja { get; set; }
 +    }
 +}
 diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
 --- a/CACC.Entities/JugadorAlta.cs	2026-10-18 17:45:35.643286100 -0300
-+++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 18:12:45.012194800 -0300
++++ b/CACC.Entities/JugadorAlta.cs	2026-10-18 23:21:10.590973600 -0300
 @@ -6,6 +6,7 @@
          public string Nombre { get; set; } = string.Empty;
          public string Apellido { get; set; } = string.Empty;
@@ -1519,8 +1514,8 @@ diff -ruN a/CACC.Entities/JugadorAlta.cs b/CACC.Entities/JugadorAlta.cs
          public string? ClubOrigen { get; set; }
 diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
 --- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 17:45:36.793255700 -0300
-+++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 18:12:45.153427100 -0300
-@@ -1,30 +1,186 @@
++++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 23:21:10.711073000 -0300
+@@ -1,30 +1,202 @@
  using System.Text.Json;
  using CACC.API.Controllers;
  using CACC.API.DTOs;
@@ -1556,8 +1551,8 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +// El QR decide con la deuda que informa el Portal Administrativo y registra la asistencia en la base del club.
 +public class AsistenciasControllerTests
 +{
-+    private static EstadoDeudaAdministrativo Estado(string estado, int cuotas, bool acceso, decimal deuda = 0) =>
-+        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso, CuotasVencidas = cuotas, DeudaTotal = deuda };
++    private static EstadoDeudaAdministrativo Estado(string estado, bool acceso) =>
++        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso };
 +
 +    private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Denegar") =>
 +        new(dao, deuda, Options.Create(new AdministrativoApiOptions { SiNoResponde = siNoResponde }));
@@ -1572,12 +1567,12 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +    private static readonly AsistenciaRequestDto Pedido = new() { Dni = " 40111222 " };
 +
 +    [Theory]
-+    [InlineData("habilitado", 0, "Asistencia registrada. Acceso permitido.")]
-+    [InlineData("solo_entrenamientos", 1, "Asistencia registrada. El jugador posee un mes de deuda.")]
-+    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, int cuotas, string mensaje)
++    [InlineData("habilitado", "Asistencia registrada. Acceso permitido.")]
++    [InlineData("solo_entrenamientos", "Asistencia registrada. El jugador posee un mes de deuda.")]
++    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, string mensaje)
 +    {
 +        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, true, cuotas * 1000m)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, true)));
 +
 +        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out var codigo);
 +
@@ -1587,7 +1582,6 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +        Assert.True(cuerpo.GetProperty("verificado").GetBoolean());
 +        Assert.Equal(estado, cuerpo.GetProperty("estado").GetString());
 +        Assert.Equal(mensaje, cuerpo.GetProperty("mensaje").GetString());
-+        Assert.Equal(cuotas, cuerpo.GetProperty("cuotasVencidas").GetInt32());
 +        Assert.Equal(1, dao.Llamadas);
 +        Assert.Equal(AsistenciaDao.Permitido, dao.UltimoEstado);
 +        Assert.Equal("40111222", dao.UltimoDni);
@@ -1595,13 +1589,12 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +    }
 +
 +    [Theory]
-+    [InlineData("inhabilitado", 2)]
-+    [InlineData("inhabilitado", 5)]
-+    [InlineData("baja", 0)]
-+    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado, int cuotas)
++    [InlineData("inhabilitado")]
++    [InlineData("baja")]
++    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado)
 +    {
 +        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, false, 5000)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, false)));
 +
 +        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
 +
@@ -1612,11 +1605,28 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +        Assert.StartsWith("Acceso denegado", cuerpo.GetProperty("mensaje").GetString());
 +    }
 +
++    // Contrato v1 (HU-028): el Deportivo no recibe ni muestra montos ni cantidad de cuotas, en ninguna respuesta del QR.
++    [Theory]
++    [InlineData("habilitado", true)]
++    [InlineData("solo_entrenamientos", true)]
++    [InlineData("inhabilitado", false)]
++    [InlineData("baja", false)]
++    public async Task LaRespuestaDelQrNuncaLlevaDatosFinancieros(string estado, bool acceso)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, acceso)));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
++
++        var nombres = cuerpo.EnumerateObject().Select(p => p.Name.ToLowerInvariant()).ToArray();
++        Assert.DoesNotContain(nombres, n => n.Contains("deuda") || n.Contains("cuota") || n.Contains("monto"));
++    }
++
 +    [Fact]
 +    public async Task UnSegundoEscaneoDelMismoDia_SeInformaSinDuplicar()
 +    {
 +        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true, YaRegistrada = true });
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", 0, true)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", true)));
 +
 +        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
 +
@@ -1670,6 +1680,7 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +        Assert.True(cuerpo.GetProperty("accesoPermitido").GetBoolean());
 +        Assert.False(cuerpo.GetProperty("verificado").GetBoolean());
 +        Assert.Equal("sin_verificar", cuerpo.GetProperty("estado").GetString());
++        Assert.False(cuerpo.TryGetProperty("deudaTotal", out _));
 +        Assert.Equal(AsistenciaDao.SinVerificar, dao.UltimoEstado);
 +        Assert.Contains("no respondió", dao.UltimaObservacion);
 +    }
@@ -1730,7 +1741,7 @@ diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasCon
 +}
 diff -ruN a/CACC.Tests/DonQrSqlContractTests.cs b/CACC.Tests/DonQrSqlContractTests.cs
 --- a/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 17:45:36.945907800 -0300
-+++ b/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 18:12:45.154425400 -0300
++++ b/CACC.Tests/DonQrSqlContractTests.cs	2026-10-18 23:21:10.712072700 -0300
 @@ -1,14 +1,58 @@
 -using Xunit;
 -namespace CACC.Tests;
@@ -1806,8 +1817,8 @@ diff -ruN a/CACC.Tests/DonQrSqlContractTests.cs b/CACC.Tests/DonQrSqlContractTes
 +}
 diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientTests.cs
 --- a/CACC.Tests/EstadoDeudaClientTests.cs	1969-12-31 21:00:00.000000000 -0300
-+++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 18:12:45.155423500 -0300
-@@ -0,0 +1,174 @@
++++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 23:21:10.713073000 -0300
+@@ -0,0 +1,175 @@
 +using System.Net;
 +using System.Text;
 +using CACC.API.Services;
@@ -1819,7 +1830,7 @@ diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientT
 +
 +public class EstadoDeudaClientTests
 +{
-+    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"cuotasVencidas\":0,\"deudaTotal\":0,\"enTermino\":true,\"fechaBaja\":null}";
++    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"fechaBaja\":null}";
 +
 +    private static EstadoDeudaClient Cliente(Func<HttpRequestMessage, HttpResponseMessage> responder, out Manejador manejador, string? token = "token-del-usuario")
 +    {
@@ -1847,7 +1858,7 @@ diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientT
 +        Assert.True(consulta.Estado.AccesoPermitido);
 +        Assert.Equal(7, consulta.Estado.IdJugador);
 +        Assert.Equal("Bearer token-del-usuario", manejador.Pedidos[0].Headers.Authorization!.ToString());
-+        Assert.Equal("/api/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
++        Assert.Equal("/api/integracion/v1/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
 +    }
 +
 +    [Theory]
@@ -1905,6 +1916,7 @@ diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientT
 +        Assert.Single(lote!);
 +        Assert.Equal("habilitado", lote["40111222"].Estado);
 +        Assert.Single(manejador.Pedidos);
++        Assert.Equal("/api/integracion/v1/estado-deuda/lote", manejador.Pedidos[0].RequestUri!.AbsolutePath);
 +        Assert.Contains("\"dnis\":[\"40111222\",\"1\"]", manejador.Cuerpos[0]);
 +    }
 +

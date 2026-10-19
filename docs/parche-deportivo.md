@@ -50,7 +50,11 @@ Cerrar sesión en el Deportivo invalida el token en el Administrativo. Los roles
 el Preparador Físico no estaba reconocido por el frontend y ahora entra como el Director Técnico. El rol 2 (Administrador) no entra al
 Deportivo: se quitó de `UserScopeService` y su token no trae permisos deportivos.
 
-**QR y estado de cuota.** La deuda ya no se lee de `VISTA_ESTADO_DEUDA`: la informa `GET {AdministrativoApi:BaseUrl}/api/estado-deuda/dni/{dni}` con
+**Contrato v1 (HU-028 / HU-054).** La API del Administrativo se publica como OpenAPI en `/api/integracion/v1/...` (documento en `openapi-v1.json`, visible en Swagger en Development).
+La respuesta lleva **solo el estado** de cada jugador: ni montos, ni cantidad de cuotas, ni meses adeudados. El QR del Deportivo pinta el semáforo con ese estado y su respuesta tampoco
+lleva datos financieros. La ruta anterior (`/api/estado-deuda`) sigue como alias hasta que todos migren.
+
+**QR y estado de cuota.** La deuda ya no se lee de `VISTA_ESTADO_DEUDA`: la informa `GET {AdministrativoApi:BaseUrl}/api/integracion/v1/estado-deuda/dni/{dni}` con
 el mismo token del usuario. Los listados piden el estado de todos los jugadores con una sola llamada (`POST …/lote`). El Deportivo conserva
 la decisión de acceso y el registro de la asistencia (idempotente por día).
 
@@ -76,7 +80,7 @@ Administrativo está en `src/app/core/auth/portales.config.ts`; en el Administra
 
 ## Qué está probado y qué no
 
-- Pruebas del Deportivo: 55 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 61 en el FrontEnd (antes 46). Una prueba del FrontEnd
+- Pruebas del Deportivo: 59 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 61 en el FrontEnd (antes 46). Una prueba del FrontEnd
   (`admin-coordinador-legacy-routes`) ya fallaba antes del parche, por nombres de clases; no tiene relación.
 - `scripts/probar.ps1`: 88 verificaciones contra las dos APIs y la base real, sin pendientes.
 - Navegador real (`pruebas/e2e/e2e.js`, Chrome automatizado con los dos frontends y las dos APIs levantados): login único, Médica y DT entran directo al

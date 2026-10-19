@@ -1,0 +1,85 @@
+diff -ruN a/src/app/features/semaforo-qr/semaforo-qr.spec.ts b/src/app/features/semaforo-qr/semaforo-qr.spec.ts
+--- a/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 23:27:44.265849400 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 23:27:44.266869100 -0300
+@@ -21,7 +21,7 @@
+   });
+ 
+   it('announces and focuses an idempotently registered result', fakeAsync(() => {
+-    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada', deudaTotal: 0, cuotasVencidas: 0 }));
++    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada' }));
+     fixture.componentInstance.dni = '40111222';
+     fixture.componentInstance.submitManual();
+     fixture.detectChanges();
+@@ -42,32 +42,32 @@
+   }
+ 
+   it('shows yellow with a month of debt', () => {
+-    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', deudaTotal: 85000, cuotasVencidas: 1, verificado: true });
++    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', verificado: true, estado: 'solo_entrenamientos' });
+     expect(card.classList).toContain('yellow');
+     expect(card.querySelector('h1')!.textContent).toContain('con deuda');
+   });
+ 
+   it('shows red without access', () => {
+-    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', deudaTotal: 170000, cuotasVencidas: 2, verificado: true });
++    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', verificado: true, estado: 'inhabilitado' });
+     expect(card.classList).toContain('red');
+     expect(card.querySelector('h1')!.textContent).toContain('inhabilitado');
+   });
+ 
+   it('shows red and says so when the player was removed from the club', () => {
+-    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', deudaTotal: 0, cuotasVencidas: 0, verificado: true, estado: 'baja' });
++    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', verificado: true, estado: 'baja' });
+     expect(card.classList).toContain('red');
+     expect(card.querySelector('h1')!.textContent).toContain('dado de baja');
+   });
+ 
+   it('shows yellow, never green, when the debt could not be verified', () => {
+-    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', deudaTotal: 0, cuotasVencidas: 0, verificado: false, estado: 'sin_verificar' });
++    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', verificado: false, estado: 'sin_verificar' });
+     expect(card.classList).toContain('yellow');
+     expect(card.classList).not.toContain('green');
+     expect(card.querySelector('h1')!.textContent).toContain('sin verificar');
+   });
+ 
+   it('does not show green or yellow without backend attendance confirmation', () => {
+-    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada', deudaTotal: 0, cuotasVencidas: 0 }));
++    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada' }));
+     fixture.componentInstance.dni = '40111222';
+     fixture.componentInstance.submitManual();
+     fixture.detectChanges();
+diff -ruN a/src/app/features/semaforo-qr/semaforo-qr.ts b/src/app/features/semaforo-qr/semaforo-qr.ts
+--- a/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 23:27:44.009205800 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 23:27:44.010203600 -0300
+@@ -23,8 +23,8 @@
+     }catch{this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}
+   }
+   // Verde: al día. Amarillo: con un mes de deuda o ingreso sin verificar la deuda. Rojo: sin acceso (inhabilitado o dado de baja).
+-  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.cuotasVencidas>=1?'yellow':'green'}
+-  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.cuotasVencidas===0?'¡Registro exitoso!':'¡Jugador con deuda!'}
++  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.estado==='solo_entrenamientos'?'yellow':'green'}
++  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.estado==='solo_entrenamientos'?'¡Jugador con deuda!':'¡Registro exitoso!'}
+   get icono():string{return this.tono==='green'?'✓':this.tono==='yellow'?'!':'×'}
+   submitManual():void{this.processPayload(this.dni)}
+   retry():void{this.result=undefined;this.error='';this.dni='';this.locked=false;this.state='scanner';void this.startCamera()}
+diff -ruN a/src/app/shared/services/asistencia.service.spec.ts b/src/app/shared/services/asistencia.service.spec.ts
+--- a/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 23:27:43.755083700 -0300
++++ b/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 23:27:43.756072100 -0300
+@@ -1,4 +1,4 @@
+ import { TestBed } from '@angular/core/testing';
+ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+ import { AsistenciaService } from './asistencia.service';
+-describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.cuotasVencidas).toBe(1));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',deudaTotal:100,cuotasVencidas:1})})});
++describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.estado).toBe('solo_entrenamientos'));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',estado:'solo_entrenamientos',verificado:true})})});
+diff -ruN a/src/app/shared/services/asistencia.service.ts b/src/app/shared/services/asistencia.service.ts
+--- a/src/app/shared/services/asistencia.service.ts	2026-10-18 23:27:43.503840800 -0300
++++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 23:27:43.503840800 -0300
+@@ -3,7 +3,7 @@
+ import { Observable } from 'rxjs';
+ 
+ // verificado=false: el Portal Administrativo no respondió y el ingreso quedó marcado para revisar (la deuda es desconocida).
+-export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; deudaTotal: number; cuotasVencidas: number; verificado?: boolean; estado?: string; }
++export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; verificado?: boolean; estado?: string; }
+ @Injectable({ providedIn: 'root' })
+ export class AsistenciaService {
+   private readonly http = inject(HttpClient);

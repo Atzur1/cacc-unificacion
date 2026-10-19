@@ -1,6 +1,6 @@
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/navegador.ts b/src/app/core/auth/navegador.ts
 --- a/src/app/core/auth/navegador.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/navegador.ts	2026-10-18 21:07:48.753665200 -0300
++++ b/src/app/core/auth/navegador.ts	2026-10-18 23:22:25.422916600 -0300
 @@ -0,0 +1,6 @@
 +// Envoltura minima de la navegacion del navegador (otro sitio = navegacion completa, no del router). Permite probarla.
 +export const navegador = {
@@ -10,7 +10,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/navegador.ts b
 +};
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.config.ts b/src/app/core/auth/portales.config.ts
 --- a/src/app/core/auth/portales.config.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/portales.config.ts	2026-10-18 21:07:48.752658100 -0300
++++ b/src/app/core/auth/portales.config.ts	2026-10-18 23:22:25.421916200 -0300
 @@ -0,0 +1,6 @@
 +// Direcciones de los portales. El inicio de sesion y la eleccion de portales son unicos y viven en el Portal Administrativo:
 +// este portal no tiene login ni selector propios. Cambiar las direcciones al publicar.
@@ -20,7 +20,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.confi
 +};
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard.spec.ts b/src/app/core/auth/portales.guard.spec.ts
 --- a/src/app/core/auth/portales.guard.spec.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/portales.guard.spec.ts	2026-10-18 21:07:48.756188500 -0300
++++ b/src/app/core/auth/portales.guard.spec.ts	2026-10-18 23:22:25.423917200 -0300
 @@ -0,0 +1,13 @@
 +import { TestBed } from '@angular/core/testing';
 +import { volverALosPortalesGuard } from './portales.guard';
@@ -37,7 +37,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard
 +});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard.ts b/src/app/core/auth/portales.guard.ts
 --- a/src/app/core/auth/portales.guard.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/portales.guard.ts	2026-10-18 21:07:48.754673500 -0300
++++ b/src/app/core/auth/portales.guard.ts	2026-10-18 23:22:25.422916600 -0300
 @@ -0,0 +1,9 @@
 +import { CanActivateFn } from '@angular/router';
 +import { PORTALES } from './portales.config';
@@ -50,7 +50,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard
 +};
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/roles.ts b/src/app/core/auth/roles.ts
 --- a/src/app/core/auth/roles.ts	2026-10-18 17:57:46.972406500 -0300
-+++ b/src/app/core/auth/roles.ts	2026-10-18 21:07:48.788233400 -0300
++++ b/src/app/core/auth/roles.ts	2026-10-18 23:22:25.437494200 -0300
 @@ -34,6 +34,8 @@
    '3': 'medico',
    medico: 'medico',
@@ -62,7 +62,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/roles.ts b/src
    'director tecnico': 'dt',
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.spec.ts b/src/app/core/auth/sso.spec.ts
 --- a/src/app/core/auth/sso.spec.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/sso.spec.ts	2026-10-18 21:07:48.524705400 -0300
++++ b/src/app/core/auth/sso.spec.ts	2026-10-18 23:22:25.338293600 -0300
 @@ -0,0 +1,20 @@
 +import { tokenDelFragmento } from './sso';
 +
@@ -86,7 +86,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.spec.ts b/
 +});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.ts b/src/app/core/auth/sso.ts
 --- a/src/app/core/auth/sso.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/sso.ts	2026-10-18 21:07:48.523187400 -0300
++++ b/src/app/core/auth/sso.ts	2026-10-18 23:22:25.337295800 -0300
 @@ -0,0 +1,9 @@
 +// El Portal Administrativo abre este portal con la sesión en el fragmento de la dirección (#sso=<token>). Va en el fragmento
 +// y no en la query para que el token no viaje al servidor ni quede en sus registros.
@@ -99,7 +99,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.ts b/src/a
 +}
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html
 --- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 17:57:47.224832700 -0300
-+++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 21:07:48.687059900 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 23:22:25.391053300 -0300
 @@ -111,10 +111,26 @@
            </div>
  
@@ -133,7 +133,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-juga
              <!-- Nombre y Apellido -->
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts
 --- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 17:57:47.272891300 -0300
-+++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 21:07:48.662993500 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 23:22:25.383026000 -0300
 @@ -57,6 +57,8 @@
    nombre = '';
    apellido = '';
@@ -162,7 +162,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-juga
        clubOrigen: this.clubOrigen?.trim() || null,
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-home/admin-home.component.ts b/src/app/features/admin-home/admin-home.component.ts
 --- a/src/app/features/admin-home/admin-home.component.ts	2026-10-18 17:57:47.994034000 -0300
-+++ b/src/app/features/admin-home/admin-home.component.ts	2026-10-18 21:07:48.719102100 -0300
++++ b/src/app/features/admin-home/admin-home.component.ts	2026-10-18 23:22:25.406094000 -0300
 @@ -241,7 +241,7 @@
    getBadgeClass(estado: Player['estadoCuota']): string {
      const e = (estado || '').toUpperCase();
@@ -174,7 +174,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-home/admi
    }
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts
 --- a/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 17:57:48.287479200 -0300
-+++ b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 21:07:48.750663300 -0300
++++ b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 23:22:25.421916200 -0300
 @@ -385,7 +385,7 @@
    getBadgeClass(estado: Player['estadoCuota']): string {
      const e = (estado || '').toUpperCase();
@@ -442,7 +442,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
 -</div>
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.component.ts b/src/app/features/login/login.component.ts
 --- a/src/app/features/login/login.component.ts	2026-10-18 17:57:51.941049500 -0300
-+++ b/src/app/features/login/login.component.ts	2026-10-18 21:07:48.758690200 -0300
++++ b/src/app/features/login/login.component.ts	2026-10-18 23:22:25.423917200 -0300
 @@ -1,62 +1,41 @@
 -import { Component, inject } from '@angular/core';
 -import { CommonModule } from '@angular/common';
@@ -531,7 +531,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
  }
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.html b/src/app/features/semaforo-qr/semaforo-qr.html
 --- a/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 17:57:53.170974600 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 21:07:48.617412300 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 23:22:25.366963200 -0300
 @@ -7,6 +7,6 @@
    <p *ngIf="state==='loading'" role="status">Procesando…</p>
  </section>
@@ -543,8 +543,17 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
  </section></main>
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.spec.ts b/src/app/features/semaforo-qr/semaforo-qr.spec.ts
 --- a/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 17:57:53.212412100 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 21:07:48.620412100 -0300
-@@ -33,6 +33,39 @@
++++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 23:22:25.468055700 -0300
+@@ -21,7 +21,7 @@
+   });
+ 
+   it('announces and focuses an idempotently registered result', fakeAsync(() => {
+-    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada', deudaTotal: 0, cuotasVencidas: 0 }));
++    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada' }));
+     fixture.componentInstance.dni = '40111222';
+     fixture.componentInstance.submitManual();
+     fixture.detectChanges();
+@@ -33,8 +33,41 @@
      expect(document.activeElement).toBe(heading);
    }));
  
@@ -557,43 +566,46 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
 +  }
 +
 +  it('shows yellow with a month of debt', () => {
-+    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', deudaTotal: 85000, cuotasVencidas: 1, verificado: true });
++    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', verificado: true, estado: 'solo_entrenamientos' });
 +    expect(card.classList).toContain('yellow');
 +    expect(card.querySelector('h1')!.textContent).toContain('con deuda');
 +  });
 +
 +  it('shows red without access', () => {
-+    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', deudaTotal: 170000, cuotasVencidas: 2, verificado: true });
++    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', verificado: true, estado: 'inhabilitado' });
 +    expect(card.classList).toContain('red');
 +    expect(card.querySelector('h1')!.textContent).toContain('inhabilitado');
 +  });
 +
 +  it('shows red and says so when the player was removed from the club', () => {
-+    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', deudaTotal: 0, cuotasVencidas: 0, verificado: true, estado: 'baja' });
++    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', verificado: true, estado: 'baja' });
 +    expect(card.classList).toContain('red');
 +    expect(card.querySelector('h1')!.textContent).toContain('dado de baja');
 +  });
 +
 +  it('shows yellow, never green, when the debt could not be verified', () => {
-+    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', deudaTotal: 0, cuotasVencidas: 0, verificado: false, estado: 'sin_verificar' });
++    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', verificado: false, estado: 'sin_verificar' });
 +    expect(card.classList).toContain('yellow');
 +    expect(card.classList).not.toContain('green');
 +    expect(card.querySelector('h1')!.textContent).toContain('sin verificar');
 +  });
 +
    it('does not show green or yellow without backend attendance confirmation', () => {
-     registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada', deudaTotal: 0, cuotasVencidas: 0 }));
+-    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada', deudaTotal: 0, cuotasVencidas: 0 }));
++    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada' }));
      fixture.componentInstance.dni = '40111222';
+     fixture.componentInstance.submitManual();
+     fixture.detectChanges();
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.ts b/src/app/features/semaforo-qr/semaforo-qr.ts
 --- a/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 17:57:53.253147400 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 21:07:48.611895100 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 23:22:25.364956100 -0300
 @@ -22,10 +22,14 @@
        this.cameraStarted=true; this.state='scanner';
      }catch{this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}
    }
 +  // Verde: al día. Amarillo: con un mes de deuda o ingreso sin verificar la deuda. Rojo: sin acceso (inhabilitado o dado de baja).
-+  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.cuotasVencidas>=1?'yellow':'green'}
-+  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.cuotasVencidas===0?'¡Registro exitoso!':'¡Jugador con deuda!'}
++  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.estado==='solo_entrenamientos'?'yellow':'green'}
++  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.estado==='solo_entrenamientos'?'¡Jugador con deuda!':'¡Registro exitoso!'}
 +  get icono():string{return this.tono==='green'?'✓':this.tono==='yellow'?'!':'×'}
    submitManual():void{this.processPayload(this.dni)}
    retry():void{this.result=undefined;this.error='';this.dni='';this.locked=false;this.state='scanner';void this.startCamera()}
@@ -605,7 +617,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
  }
 diff -ruN -x node_modules -x .angular -x dist a/src/app/routes/admin.routes.ts b/src/app/routes/admin.routes.ts
 --- a/src/app/routes/admin.routes.ts	2026-10-18 17:57:54.203225700 -0300
-+++ b/src/app/routes/admin.routes.ts	2026-10-18 21:07:48.763191800 -0300
++++ b/src/app/routes/admin.routes.ts	2026-10-18 23:22:25.426945100 -0300
 @@ -1,8 +1,9 @@
  import { Routes } from '@angular/router';
 +import { volverALosPortalesGuard } from '../core/auth/portales.guard';
@@ -617,22 +629,31 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/routes/admin.routes.ts b
    { path: 'registro-personas', title: 'Registro de personas', loadComponent: () => import('../features/admin-registro-personas/admin-registro-personas.component').then((m) => m.AdminRegistroPersonasComponent) },
    { path: 'jugadores', title: 'Jugadores', loadComponent: () => import('../features/admin-lista-jugadores/admin-lista-jugadores').then((m) => m.AdminListaJugadores) },
    { path: 'jugadores/nuevo', title: 'Registrar jugador', loadComponent: () => import('../features/admin-alta-jugador/admin-alta-jugador.component').then((m) => m.AdminAltaJugadorComponent) },
+diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/asistencia.service.spec.ts b/src/app/shared/services/asistencia.service.spec.ts
+--- a/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 17:57:54.694256400 -0300
++++ b/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 23:22:25.455033100 -0300
+@@ -1,4 +1,4 @@
+ import { TestBed } from '@angular/core/testing';
+ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+ import { AsistenciaService } from './asistencia.service';
+-describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.cuotasVencidas).toBe(1));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',deudaTotal:100,cuotasVencidas:1})})});
++describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.estado).toBe('solo_entrenamientos'));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',estado:'solo_entrenamientos',verificado:true})})});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/asistencia.service.ts b/src/app/shared/services/asistencia.service.ts
 --- a/src/app/shared/services/asistencia.service.ts	2026-10-18 17:57:54.734604000 -0300
-+++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 21:07:48.585848800 -0300
++++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 23:22:25.351318100 -0300
 @@ -2,7 +2,8 @@
  import { Injectable, inject } from '@angular/core';
  import { Observable } from 'rxjs';
  
 -export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; deudaTotal: number; cuotasVencidas: number; }
 +// verificado=false: el Portal Administrativo no respondió y el ingreso quedó marcado para revisar (la deuda es desconocida).
-+export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; deudaTotal: number; cuotasVencidas: number; verificado?: boolean; estado?: string; }
++export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; verificado?: boolean; estado?: string; }
  @Injectable({ providedIn: 'root' })
  export class AsistenciaService {
    private readonly http = inject(HttpClient);
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.service.sso.spec.ts b/src/app/shared/services/auth.service.sso.spec.ts
 --- a/src/app/shared/services/auth.service.sso.spec.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/shared/services/auth.service.sso.spec.ts	2026-10-18 21:07:48.814266700 -0300
++++ b/src/app/shared/services/auth.service.sso.spec.ts	2026-10-18 23:22:25.454027400 -0300
 @@ -0,0 +1,63 @@
 +import { TestBed } from '@angular/core/testing';
 +import { provideHttpClient } from '@angular/common/http';
@@ -699,7 +720,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
 +});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.service.ts b/src/app/shared/services/auth.service.ts
 --- a/src/app/shared/services/auth.service.ts	2026-10-18 17:57:54.814105400 -0300
-+++ b/src/app/shared/services/auth.service.ts	2026-10-18 21:07:48.811763000 -0300
++++ b/src/app/shared/services/auth.service.ts	2026-10-18 23:22:25.452520800 -0300
 @@ -2,6 +2,7 @@
  import { HttpClient } from '@angular/common/http';
  import { Observable, tap } from 'rxjs';

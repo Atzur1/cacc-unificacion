@@ -105,16 +105,17 @@ $cuotas = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id AND conce
 if ($hoy.Day -ge 10) { Chk 'Flujo' 'el generador emite la cuota del mes ($85.000) del jugador cargado por el Deportivo' ($cuotas -eq 1) "cuotas=$cuotas" }
 else { Chk 'Flujo' 'antes del dia 10 no se emite la cuota del mes en curso (regla del club)' ($cuotas -eq 0) "cuotas=$cuotas" }
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json
-Chk 'QR' '0 cuotas vencidas: acceso permitido y asistencia registrada' ($r.s -eq 200 -and $j.accesoPermitido -and $j.cuotasVencidas -eq 0 -and $j.asistenciaRegistrada) "vencidas=$($j.cuotasVencidas) deuda=$($j.deudaTotal) $($j.mensaje)"
+Chk 'QR' 'al dia: acceso permitido y asistencia registrada' ($r.s -eq 200 -and $j.accesoPermitido -and $j.estado -eq 'habilitado' -and $j.asistenciaRegistrada) "estado=$($j.estado) $($j.mensaje)"
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json; Chk 'QR' 'segundo escaneo del dia: ya registrada' ($j.yaRegistrada) $j.mensaje
 SQ "INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES ($id,85000,85000,'$(& $f $p1)',0,'Cuota'),($id,85000,85000,'$(& $f $p2)',0,'Cuota')" | Out-Null
 SQ "DELETE FROM ASISTENCIAS WHERE FK_id_jugador=$id" | Out-Null
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json
-Chk 'QR' '2 cuotas vencidas: acceso denegado' ($j.cuotasVencidas -eq 2 -and -not $j.accesoPermitido) "vencidas=$($j.cuotasVencidas) deuda=$($j.deudaTotal) $($j.mensaje)"
+Chk 'QR' '2 cuotas vencidas: inhabilitado, acceso denegado' ($j.estado -eq 'inhabilitado' -and -not $j.accesoPermitido) "estado=$($j.estado) $($j.mensaje)"
 $idPago = [int](SQ "SELECT PK_id_pago FROM PAGOS WHERE FK_id_jugador=$id AND fecha_vencimiento='$(& $f $p2)' AND estado=0")
 $r = Call 'POST' "$A/api/pagos/cobro" $T @{ idJugador = $id; idsPago = @($idPago); metodoPago = 'Efectivo' }; Chk 'Flujo' 'se cobra la cuota mas vieja en el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json
-Chk 'QR' 'tras el cobro queda 1 vencida: permitido (solo entrenamientos)' ($j.cuotasVencidas -eq 1 -and $j.accesoPermitido) "vencidas=$($j.cuotasVencidas) deuda=$($j.deudaTotal) $($j.mensaje)"
+Chk 'QR' 'tras el cobro queda 1 vencida: permitido (solo entrenamientos)' ($j.estado -eq 'solo_entrenamientos' -and $j.accesoPermitido) "estado=$($j.estado) $($j.mensaje)"
+Chk 'QR' 'la respuesta del QR no lleva montos ni cuotas (privacidad)' ((($j.PSObject.Properties.Name -join ',') -notmatch 'deuda|cuota|monto|importe|saldo') -and ($j.PSObject.Properties.Value | Where-Object { $_ -is [decimal] -or $_ -is [double] -or $_ -is [int] }).Count -eq 0) ($j.PSObject.Properties.Name -join ',')
 $r = Call 'POST' "$A/api/jugadores/$id/baja" $T @{ fecha = (& $f $hoy) }; Chk 'Flujo' 'baja del jugador desde el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 Chk 'Flujo' 'la baja marca activo=0 y cierra el periodo de permanencia' ((SQ "SELECT CAST(activo AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id AND fecha_baja IS NOT NULL) AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq '0/1') ''
 $r = Call 'GET' "$B/api/jugadores" $T; Chk 'Bajas' 'el listado del Deportivo no muestra a los jugadores dados de baja' ($r.b -notmatch '41000001') "HTTP $($r.s)"
@@ -127,18 +128,21 @@ Chk 'Auditoria' 'lo que escribe el Administrativo queda con responsable' ([int](
 
 # ================= 2b. API DE ESTADO DE DEUDA (la fuente que el Deportivo va a consultar)
 Write-Host '--- 2b. API de estado de deuda' -ForegroundColor Cyan
-$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $T; $e = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $T; $e = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
 Chk 'EstadoDeuda' 'consulta por DNI' ($r.s -eq 200 -and $e.estado -eq 'solo_entrenamientos' -and $e.accesoPermitido) "HTTP $($r.s) $($r.b)"
 $vista = SQ "SELECT CAST(cantidad_cuotas_vencidas AS varchar)+'/'+CAST(CAST(deuda_total AS int) AS varchar) FROM VISTA_ESTADO_DEUDA WHERE FK_id_jugador=$id"
-Chk 'EstadoDeuda' 'la API coincide con la vista provisoria (no se desalinean)' ($null -ne $e -and ("$($e.cuotasVencidas)/$([int]$e.deudaTotal)" -eq $vista)) "API=$($e.cuotasVencidas)/$([int]$e.deudaTotal) vista=$vista"
-$r = Call 'GET' "$A/api/estado-deuda/dni/41.000.001" $T; Chk 'EstadoDeuda' 'acepta el DNI con puntos' ($r.s -eq 200) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/10000001" $T; Chk 'EstadoDeuda' 'DNI que no es de un jugador: 404' ($r.s -eq 404) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/abc" $T; Chk 'EstadoDeuda' 'DNI invalido: 400' ($r.s -eq 400) "HTTP $($r.s)"
-$r = Call 'POST' "$A/api/estado-deuda/lote" $T @{ dnis = @('41.000.001', '10000001', 'xx') }; $l = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'EstadoDeuda' 'la API coincide con la vista provisoria (mismo estado, sin exponer el calculo)' ($null -ne $e -and ($e.estado -eq $(if ([int]($vista -split '/')[0] -ge 2) { 'inhabilitado' } elseif ([int]($vista -split '/')[0] -eq 1) { 'solo_entrenamientos' } else { 'habilitado' }))) "API=$($e.estado) vista=$vista"
+Chk 'EstadoDeuda' 'la respuesta solo trae el estado: ni montos ni cuotas' ((($e.PSObject.Properties.Name | Sort-Object) -join ',') -eq 'accesoPermitido,dni,estado,fechaBaja,idJugador') ((($e.PSObject.Properties.Name | Sort-Object) -join ','))
+$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $T; Chk 'EstadoDeuda' 'la ruta anterior (sin version) sigue funcionando como alias' ($r.s -eq 200 -and $r.b -match 'solo_entrenamientos') "HTTP $($r.s)"
+$r = Call 'GET' "$A/swagger/integracion-v1/swagger.json" $null; Chk 'Contrato' 'el contrato OpenAPI v1 esta publicado y solo trae las rutas de integracion' ($r.s -eq 200 -and $r.b -match 'integracion/v1/estado-deuda/dni' -and $r.b -notmatch '/api/pagos' -and $r.b -match 'bearer') "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41.000.001" $T; Chk 'EstadoDeuda' 'acepta el DNI con puntos' ($r.s -eq 200) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/10000001" $T; Chk 'EstadoDeuda' 'DNI que no es de un jugador: 404' ($r.s -eq 404) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/abc" $T; Chk 'EstadoDeuda' 'DNI invalido: 400' ($r.s -eq 400) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/integracion/v1/estado-deuda/lote" $T @{ dnis = @('41.000.001', '10000001', 'xx') }; $l = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
 Chk 'EstadoDeuda' 'consulta por lote separa encontrados y no encontrados' ($r.s -eq 200 -and @($l.items).Count -eq 1 -and @($l.noEncontrados).Count -eq 2) "HTTP $($r.s) $($r.b)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $null; Chk 'EstadoDeuda' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TM; Chk 'EstadoDeuda' 'la Medica (solo Deportivo) puede consultar con su token' ($r.s -eq 200) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TD; Chk 'EstadoDeuda' 'el DT de la categoria del jugador (3) puede consultar' ($r.s -eq 200) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $null; Chk 'EstadoDeuda' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $TM; Chk 'EstadoDeuda' 'la Medica (solo Deportivo) puede consultar con su token' ($r.s -eq 200) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $TD; Chk 'EstadoDeuda' 'el DT de la categoria del jugador (3) puede consultar' ($r.s -eq 200) "HTTP $($r.s)"
 # ================= 2c. INSCRIPCION POR GENERO (las mujeres hoy no pagan; el club puede empezar a cobrarla)
 Write-Host '--- 2c. Inscripcion por genero' -ForegroundColor Cyan
 $alta = { param($dni, $genero) Call 'POST' "$A/api/players" $T @{ firstName = 'Prueba'; lastName = "Insc$dni"; dni = $dni; birthDate = '2012-03-03'; gender = $genero; categoryId = 3 } }
@@ -185,7 +189,7 @@ $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja e
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
 $r = Call 'POST' "$A/api/enrollmentfees" $TA @{ gender = 'Femenino'; amount = 1; startDate = (& $f $hoy.AddDays(5)) }; Chk 'Inscripcion' 'el Administrador (rol 2) no programa aranceles de inscripcion: 403' ($r.s -eq 403) "HTTP $($r.s)"
-$r = Call 'GET' "$A/api/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Administrador (rol 2) no consulta el estado deportivo: 403' ($r.s -eq 403) "HTTP $($r.s)"
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $TA; Chk 'EstadoDeuda' 'el Administrador (rol 2) no consulta el estado deportivo: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($TA.Split('.')[1].Replace('-', '+').Replace('_', '/') + ('=' * ((4 - $TA.Split('.')[1].Length % 4) % 4)))))
 Chk 'Cuentas' 'el token del Administrador (rol 2) no lleva permisos del Deportivo' ($claims -notmatch '"id_rol"') (Corto $claims 80)
 

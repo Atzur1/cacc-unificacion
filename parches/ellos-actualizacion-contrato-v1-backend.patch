@@ -1,0 +1,228 @@
+diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers/AsistenciasController.cs
+--- a/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 23:27:42.097482400 -0300
++++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 23:27:42.098479400 -0300
+@@ -61,9 +61,7 @@
+                     yaRegistrada = false,
+                     verificado = true,
+                     estado = estado.Estado,
+-                    mensaje = MensajeDenegado(estado),
+-                    deudaTotal = estado.DeudaTotal,
+-                    cuotasVencidas = estado.CuotasVencidas
++                    mensaje = MensajeDenegado(estado)
+                 });
+             }
+ 
+@@ -73,11 +71,11 @@
+                 return UnprocessableEntity(new { message = resultado.Error ?? "No se pudo identificar un jugador inequívoco." });
+             }
+ 
+-            string mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : estado.CuotasVencidas switch
+-            {
+-                0 => "Asistencia registrada. Acceso permitido.",
+-                _ => "Asistencia registrada. El jugador posee un mes de deuda."
+-            };
++            string mensaje = resultado.YaRegistrada
++                ? "La asistencia ya estaba registrada para hoy."
++                : estado.Estado == "solo_entrenamientos"
++                    ? "Asistencia registrada. El jugador posee un mes de deuda."
++                    : "Asistencia registrada. Acceso permitido.";
+             return Ok(new
+             {
+                 accesoPermitido = true,
+@@ -85,9 +83,7 @@
+                 yaRegistrada = resultado.YaRegistrada,
+                 verificado = true,
+                 estado = estado.Estado,
+-                mensaje,
+-                deudaTotal = estado.DeudaTotal,
+-                cuotasVencidas = estado.CuotasVencidas
++                mensaje
+             });
+         }
+ 
+@@ -117,14 +113,12 @@
+                 yaRegistrada = resultado.YaRegistrada,
+                 verificado = false,
+                 estado = "sin_verificar",
+-                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar.",
+-                deudaTotal = 0m,
+-                cuotasVencidas = 0
++                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar."
+             });
+         }
+ 
+         private static string MensajeDenegado(EstadoDeudaAdministrativo estado) => estado.Estado == "baja"
+             ? "Acceso denegado. El jugador está dado de baja y la asistencia no fue registrada."
+-            : $"Acceso denegado. El jugador posee {estado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada.";
++            : "Acceso denegado. El jugador está inhabilitado por deuda y la asistencia no fue registrada.";
+     }
+ }
+diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeudaClient.cs
+--- a/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 23:27:41.721870900 -0300
++++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 23:27:41.722876900 -0300
+@@ -70,7 +70,7 @@
+ 
+         public async Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default)
+         {
+-            using var pedido = NuevoPedido(HttpMethod.Get, $"api/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
++            using var pedido = NuevoPedido(HttpMethod.Get, $"api/integracion/v1/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
+             try
+             {
+                 using var respuesta = await _http.SendAsync(pedido, ct);
+@@ -113,7 +113,7 @@
+                 for (int i = 0; i < pendientes.Count; i += MaximoPorLote)
+                 {
+                     var tanda = pendientes.Skip(i).Take(MaximoPorLote).ToList();
+-                    using var pedido = NuevoPedido(HttpMethod.Post, "api/estado-deuda/lote");
++                    using var pedido = NuevoPedido(HttpMethod.Post, "api/integracion/v1/estado-deuda/lote");
+                     pedido.Content = new StringContent(JsonSerializer.Serialize(new { dnis = tanda }, Json), Encoding.UTF8, "application/json");
+                     using var respuesta = await _http.SendAsync(pedido, ct);
+                     if (!respuesta.IsSuccessStatusCode)
+diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeudaAdministrativo.cs
+--- a/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 23:27:41.445981000 -0300
++++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 23:27:41.446982300 -0300
+@@ -1,7 +1,8 @@
+ namespace CACC.Entities
+ {
+-    // Estado de deuda de un jugador tal como lo informa el Portal Administrativo (api/estado-deuda). Ese portal es la
+-    // única fuente de verdad de la deuda: acá no se calcula nada.
++    // Estado de habilitación de un jugador tal como lo informa el Portal Administrativo (api/integracion/v1/estado-deuda).
++    // Ese portal es la única fuente de verdad de la deuda: acá no se calcula nada y NO se recibe ningún monto ni cantidad de
++    // cuotas (contrato v1: solo el estado).
+     public class EstadoDeudaAdministrativo
+     {
+         public string Dni { get; set; } = string.Empty;
+@@ -10,9 +11,6 @@
+         // "habilitado", "solo_entrenamientos", "inhabilitado" o "baja".
+         public string Estado { get; set; } = string.Empty;
+         public bool AccesoPermitido { get; set; }
+-        public int CuotasVencidas { get; set; }
+-        public decimal DeudaTotal { get; set; }
+-        public bool EnTermino { get; set; }
+         public string? FechaBaja { get; set; }
+     }
+ }
+diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
+--- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 23:27:42.466148600 -0300
++++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 23:27:42.467152200 -0300
+@@ -12,8 +12,8 @@
+ // El QR decide con la deuda que informa el Portal Administrativo y registra la asistencia en la base del club.
+ public class AsistenciasControllerTests
+ {
+-    private static EstadoDeudaAdministrativo Estado(string estado, int cuotas, bool acceso, decimal deuda = 0) =>
+-        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso, CuotasVencidas = cuotas, DeudaTotal = deuda };
++    private static EstadoDeudaAdministrativo Estado(string estado, bool acceso) =>
++        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso };
+ 
+     private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Denegar") =>
+         new(dao, deuda, Options.Create(new AdministrativoApiOptions { SiNoResponde = siNoResponde }));
+@@ -28,12 +28,12 @@
+     private static readonly AsistenciaRequestDto Pedido = new() { Dni = " 40111222 " };
+ 
+     [Theory]
+-    [InlineData("habilitado", 0, "Asistencia registrada. Acceso permitido.")]
+-    [InlineData("solo_entrenamientos", 1, "Asistencia registrada. El jugador posee un mes de deuda.")]
+-    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, int cuotas, string mensaje)
++    [InlineData("habilitado", "Asistencia registrada. Acceso permitido.")]
++    [InlineData("solo_entrenamientos", "Asistencia registrada. El jugador posee un mes de deuda.")]
++    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, string mensaje)
+     {
+         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
+-        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, true, cuotas * 1000m)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, true)));
+ 
+         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out var codigo);
+ 
+@@ -43,7 +43,6 @@
+         Assert.True(cuerpo.GetProperty("verificado").GetBoolean());
+         Assert.Equal(estado, cuerpo.GetProperty("estado").GetString());
+         Assert.Equal(mensaje, cuerpo.GetProperty("mensaje").GetString());
+-        Assert.Equal(cuotas, cuerpo.GetProperty("cuotasVencidas").GetInt32());
+         Assert.Equal(1, dao.Llamadas);
+         Assert.Equal(AsistenciaDao.Permitido, dao.UltimoEstado);
+         Assert.Equal("40111222", dao.UltimoDni);
+@@ -51,13 +50,12 @@
+     }
+ 
+     [Theory]
+-    [InlineData("inhabilitado", 2)]
+-    [InlineData("inhabilitado", 5)]
+-    [InlineData("baja", 0)]
+-    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado, int cuotas)
++    [InlineData("inhabilitado")]
++    [InlineData("baja")]
++    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado)
+     {
+         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
+-        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, false, 5000)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, false)));
+ 
+         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
+ 
+@@ -68,11 +66,28 @@
+         Assert.StartsWith("Acceso denegado", cuerpo.GetProperty("mensaje").GetString());
+     }
+ 
++    // Contrato v1 (HU-028): el Deportivo no recibe ni muestra montos ni cantidad de cuotas, en ninguna respuesta del QR.
++    [Theory]
++    [InlineData("habilitado", true)]
++    [InlineData("solo_entrenamientos", true)]
++    [InlineData("inhabilitado", false)]
++    [InlineData("baja", false)]
++    public async Task LaRespuestaDelQrNuncaLlevaDatosFinancieros(string estado, bool acceso)
++    {
++        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, acceso)));
++
++        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
++
++        var nombres = cuerpo.EnumerateObject().Select(p => p.Name.ToLowerInvariant()).ToArray();
++        Assert.DoesNotContain(nombres, n => n.Contains("deuda") || n.Contains("cuota") || n.Contains("monto"));
++    }
++
+     [Fact]
+     public async Task UnSegundoEscaneoDelMismoDia_SeInformaSinDuplicar()
+     {
+         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true, YaRegistrada = true });
+-        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", 0, true)));
++        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", true)));
+ 
+         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
+ 
+@@ -126,6 +141,7 @@
+         Assert.True(cuerpo.GetProperty("accesoPermitido").GetBoolean());
+         Assert.False(cuerpo.GetProperty("verificado").GetBoolean());
+         Assert.Equal("sin_verificar", cuerpo.GetProperty("estado").GetString());
++        Assert.False(cuerpo.TryGetProperty("deudaTotal", out _));
+         Assert.Equal(AsistenciaDao.SinVerificar, dao.UltimoEstado);
+         Assert.Contains("no respondió", dao.UltimaObservacion);
+     }
+diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientTests.cs
+--- a/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 23:27:42.738969800 -0300
++++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 23:27:42.739970100 -0300
+@@ -9,7 +9,7 @@
+ 
+ public class EstadoDeudaClientTests
+ {
+-    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"cuotasVencidas\":0,\"deudaTotal\":0,\"enTermino\":true,\"fechaBaja\":null}";
++    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"fechaBaja\":null}";
+ 
+     private static EstadoDeudaClient Cliente(Func<HttpRequestMessage, HttpResponseMessage> responder, out Manejador manejador, string? token = "token-del-usuario")
+     {
+@@ -37,7 +37,7 @@
+         Assert.True(consulta.Estado.AccesoPermitido);
+         Assert.Equal(7, consulta.Estado.IdJugador);
+         Assert.Equal("Bearer token-del-usuario", manejador.Pedidos[0].Headers.Authorization!.ToString());
+-        Assert.Equal("/api/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
++        Assert.Equal("/api/integracion/v1/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
+     }
+ 
+     [Theory]
+@@ -95,6 +95,7 @@
+         Assert.Single(lote!);
+         Assert.Equal("habilitado", lote["40111222"].Estado);
+         Assert.Single(manejador.Pedidos);
++        Assert.Equal("/api/integracion/v1/estado-deuda/lote", manejador.Pedidos[0].RequestUri!.AbsolutePath);
+         Assert.Contains("\"dnis\":[\"40111222\",\"1\"]", manejador.Cuerpos[0]);
+     }
+ 
