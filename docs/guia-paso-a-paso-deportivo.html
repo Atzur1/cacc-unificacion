@@ -43,7 +43,7 @@
 <table>
   <tr><th>Archivo</th><th>Para qué sirve</th></tr>
   <tr><td><code>ellos-definitivo.patch</code></td><td>Parche del <b>BackEnd</b> (24 archivos: DAO, controladores, Program.cs, pruebas).</td></tr>
-  <tr><td><code>ellos-definitivo-frontend.patch</code></td><td>Parche del <b>FrontEnd</b> (15 archivos: alta de jugador, QR, pantalla de ingreso, sesión).</td></tr>
+  <tr><td><code>ellos-definitivo-frontend.patch</code></td><td>Parche del <b>FrontEnd</b> (24 archivos: alta de jugador, QR, sin login ni selector de portales propios, sesión).</td></tr>
   <tr><td><code>aplicar-parche.ps1</code></td><td>Script que aplica un parche cuidando los saltos de línea (CRLF/BOM) de sus archivos.</td></tr>
   <tr><td><code>ClubCamioneros_unificada_v2_crear_base.sql</code></td><td>Script que crea la base unificada (vacía, con los catálogos).</td></tr>
   <tr><td><code>seed_cuentas_prueba.sql</code></td><td>Cuentas de prueba (solo para desarrollo, nunca en producción).</td></tr>
@@ -139,12 +139,12 @@ dotnet test CACC.Tests\CACC.Tests.csproj</pre>
 <pre>cd UNIF\parches
 .\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd -Verificar
 .\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd</pre>
-<p>Debe decir que aplicó 15 archivos. Luego:</p>
+<p>Debe decir que aplicó 24 archivos. Luego:</p>
 <pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd
 npm ci
 npx ng build
 npx ng test --watch=false --browsers=ChromeHeadless</pre>
-<div class="box ok"><b>Resultado esperado:</b> el build termina bien (los avisos de “exceeded maximum budget” ya existían). Pruebas: <b>59 en total, 58 correctas</b>. La que falla es <code>admin-coordinador-legacy-routes</code> y ya fallaba <b>antes</b> del parche (nombres de clases); no la tienen que arreglar para esto.</div>
+<div class="box ok"><b>Resultado esperado:</b> el build termina bien (los avisos de “exceeded maximum budget” ya existían). Pruebas: <b>61 en total, 60 correctas</b>. La que falla es <code>admin-coordinador-legacy-routes</code> y ya fallaba <b>antes</b> del parche (nombres de clases); no la tienen que arreglar para esto.</div>
 <h3>Dirección del Portal Administrativo</h3>
 <p>Abran <code>FrontEnd\src\app\core\auth\portales.config.ts</code>. En desarrollo debe decir <code>http://localhost:4200</code> (así viene). <b>Al publicar</b>, cambiar por la dirección real del Administrativo.</p>
 
@@ -168,8 +168,9 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
 <ul class="checks">
   <li>Entrar a <code>http://localhost:4200</code> (Administrativo) con <code>20111222</code> y la contraseña de prueba. Aparece la elección de portales.</li>
   <li>Elegir <b>Portal Deportivo</b>: el navegador pasa a <code>localhost:4300</code>, entra sin pedir contraseña y la barra de direcciones <b>no muestra el token</b>.</li>
-  <li>Abrir directamente <code>http://localhost:4300</code> en otra ventana sin sesión: muestra “El inicio de sesión es único” y un botón que lleva al Administrativo.</li>
-  <li>Entrar con <code>30000003</code> (Médica) o <code>30000004</code> (DT): van <b>directo</b> al Portal Deportivo, sin pasar por la elección de portales.</li>
+  <li>Abrir directamente <code>http://localhost:4300</code> en otra ventana sin sesión: <b>no muestra ningún login</b>, redirige solo al login del Administrativo.</li>
+  <li>Desde cualquier pantalla del Deportivo, “Portales” lleva a la elección <b>del Administrativo</b> (no hay otra), con la sesión abierta. “Personas” abre el alta de personas del Deportivo.</li>
+  <li>Entrar con <code>30000003</code> (Médica) o <code>30000004</code> (DT) en el login del Administrativo: van <b>directo</b> al Portal Deportivo, sin ver otro login ni la elección de portales.</li>
   <li><b>Alta de jugador</b> (como SuperAdmin): el formulario tiene el campo <b>Género</b> obligatorio; sin género ni categoría no deja guardar.</li>
   <li>El jugador dado de alta aparece en el listado con estado de cuota (“AL DÍA”, “PENDIENTE” o “INHABILITADO”) que viene del Administrativo.</li>
   <li><b>QR</b> (pantalla de escáner o DNI a mano): jugador al día → verde; con un mes de deuda → amarillo; con 2 o más cuotas vencidas → rojo y no registra asistencia.</li>
@@ -188,7 +189,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
   <tr><td>Categorías</td><td>No se borra una categoría con jugadores o aranceles (HTTP 409). Ya no se deja <code>FK_id_categoria = NULL</code>.</td></tr>
   <tr><td>Auditoría</td><td>Toda conexión de los DAO se abre con <code>OpenAuditadaAsync</code>, que registra quién escribe. <b>Regla para el futuro:</b> nunca abrir con <code>OpenAsync</code> a secas (una prueba falla si lo hacen).</td></tr>
   <tr><td>Sesión</td><td><code>Program.cs</code> valida en cada pedido que el usuario siga activo y que el token no esté invalidado. Cerrar sesión en un portal la cierra en ambos.</td></tr>
-  <tr><td>Login único</td><td><code>POST api/auth/login</code> responde 410. La pantalla de ingreso recibe la sesión del Administrativo (<code>/login#sso=…</code>) y borra el token de la barra.</td></tr>
+  <tr><td>Un solo login y una sola elección de portales</td><td><code>POST api/auth/login</code> responde 410. <b>El Deportivo ya no muestra ningún login:</b> la ruta <code>/login</code> solo recibe la sesión del Administrativo (<code>#sso=…</code>), borra el token de la barra y, si no hay sesión, redirige al login del Administrativo sin mostrar nada. <b>Se eliminó el selector de portales del Deportivo</b> (<code>admin-seleccion-portales</code>): <code>/admin/portales</code> y <code>/seleccion-portales</code> llevan a la elección de portales del Administrativo. Cerrar sesión en el Deportivo también invalida el token en el Administrativo.</td></tr>
   <tr><td>Roles</td><td>El rol 2 (Administrador del Administrativo) ya no entra al Deportivo.</td></tr>
   <tr><td>QR y estado de cuota</td><td>La deuda ya <b>no se lee de <code>VISTA_ESTADO_DEUDA</code></b>: se consulta a <code>GET /api/estado-deuda/dni/{dni}</code> del Administrativo con el token del usuario; los listados usan una sola llamada por lote. Si el Administrativo no responde: 503 y no pasa nadie.</td></tr>
 </table>

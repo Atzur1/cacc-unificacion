@@ -1,0 +1,7 @@
+{
+  "name": "cacc-e2e",
+  "private": true,
+  "description": "Prueba de navegador de los dos portales (requiere scripts/manual.ps1 levantado)",
+  "scripts": { "test": "node e2e.js" },
+  "dependencies": { "puppeteer-core": "^24.0.0" }
+}

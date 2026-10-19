@@ -6,7 +6,7 @@ sobre el `main` del Deportivo (commit `afa4e60`):
 | Parche | Carpeta donde se aplica | Qué toca |
 |---|---|---|
 | `parches/ellos-definitivo.patch` | `BackEnd` | 24 archivos: DAO, controladores, `Program.cs`, pruebas |
-| `parches/ellos-definitivo-frontend.patch` | `FrontEnd` | 15 archivos: alta de jugador, QR, pantalla de ingreso, sesión |
+| `parches/ellos-definitivo-frontend.patch` | `FrontEnd` | 24 archivos: alta de jugador, QR, sin login ni selector de portales propios, sesión |
 
 ## Cómo aplicarlo
 
@@ -42,9 +42,12 @@ Una prueba (`DonQrSqlContractTests`) falla si alguien vuelve a abrir una conexi�
 sesión en un portal la cierra en los dos. Clave, emisor y audiencia del JWT salen de `Jwt:Key/Issuer/Audience` (variables `Jwt__Key`, …) y
 **deben ser los mismos que los del Administrativo**. En producción la app no arranca con la clave de ejemplo del repositorio.
 
-**Login único.** `POST api/auth/login` responde 410 (se enciende solo con `Auth:LoginPropio=true`, para desarrollo sin el otro portal).
-La pantalla de ingreso del Deportivo ya no pide usuario y contraseña: recibe la sesión del Administrativo (`/login#sso=<token>`), la guarda
-y borra el token de la barra de direcciones; si no hay sesión, manda a iniciar sesión en el Administrativo. El rol 2 (Administrador) no entra al
+**Un solo login y una sola elección de portales.** `POST api/auth/login` responde 410 (se enciende solo con `Auth:LoginPropio=true`, para desarrollo sin el otro portal).
+El Deportivo **no muestra ningún login**: `/login` solo recibe la sesión del Administrativo (`#sso=<token>`), la guarda, borra el token de la barra y
+sigue; si no hay sesión válida redirige al login del Administrativo sin mostrar nada. Se eliminó el selector de portales del Deportivo:
+`/admin/portales` y `/seleccion-portales` llevan a la elección de portales del Administrativo (que también tiene "Personas", que abre `/admin/registro-personas`).
+Cerrar sesión en el Deportivo invalida el token en el Administrativo. Los roles con tilde (Médico, Director Técnico, Preparador Físico) se leen bien del token;
+el Preparador Físico no estaba reconocido por el frontend y ahora entra como el Director Técnico. El rol 2 (Administrador) no entra al
 Deportivo: se quitó de `UserScopeService` y su token no trae permisos deportivos.
 
 **QR y estado de cuota.** La deuda ya no se lee de `VISTA_ESTADO_DEUDA`: la informa `GET {AdministrativoApi:BaseUrl}/api/estado-deuda/dni/{dni}` con
@@ -73,8 +76,9 @@ Administrativo está en `src/app/core/auth/portales.config.ts`; en el Administra
 
 ## Qué está probado y qué no
 
-- Pruebas del Deportivo: 55 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 59 en el FrontEnd (antes 46). Una prueba del FrontEnd
+- Pruebas del Deportivo: 55 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 61 en el FrontEnd (antes 46). Una prueba del FrontEnd
   (`admin-coordinador-legacy-routes`) ya fallaba antes del parche, por nombres de clases; no tiene relación.
 - `scripts/probar.ps1`: 88 verificaciones contra las dos APIs y la base real, sin pendientes.
-- **No** probado en un navegador de punta a punta: el pase de sesión entre los dos sitios (`#sso=`) está cubierto por pruebas unitarias de
-  cada lado, pero falta recorrerlo a mano con los dos frontends levantados.
+- Navegador real (`pruebas/e2e/e2e.js`, Chrome automatizado con los dos frontends y las dos APIs levantados): login único, Médica y DT entran directo al
+  Deportivo, SuperAdmin pasa y vuelve a la elección de portales, "Personas" abre el alta, y el Deportivo sin sesión redirige al login del Administrativo.
+  10 verificaciones, todas correctas. Se corre con `manual.ps1` levantado: `cd pruebas\e2e; npm install; node e2e.js`.

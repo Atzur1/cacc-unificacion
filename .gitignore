@@ -14,3 +14,5 @@ appsettings.Local.json
 bin/
 obj/
 .vs/
+
+node_modules/

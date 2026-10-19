@@ -1,15 +1,68 @@
+diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/navegador.ts b/src/app/core/auth/navegador.ts
+--- a/src/app/core/auth/navegador.ts	1969-12-31 21:00:00.000000000 -0300
++++ b/src/app/core/auth/navegador.ts	2026-10-18 21:07:48.753665200 -0300
+@@ -0,0 +1,6 @@
++// Envoltura minima de la navegacion del navegador (otro sitio = navegacion completa, no del router). Permite probarla.
++export const navegador = {
++  irA: (url: string): void => {
++    if (typeof window !== 'undefined') window.location.replace(url);
++  }
++};
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.config.ts b/src/app/core/auth/portales.config.ts
 --- a/src/app/core/auth/portales.config.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/portales.config.ts	2026-10-18 18:07:32.124055400 -0300
-@@ -0,0 +1,5 @@
-+// Direcciones de los portales. El inicio de sesión es único y vive en el Portal Administrativo: este portal ya no tiene
-+// login propio, recibe la sesión de ahí. Cambiar la dirección al publicar.
++++ b/src/app/core/auth/portales.config.ts	2026-10-18 21:07:48.752658100 -0300
+@@ -0,0 +1,6 @@
++// Direcciones de los portales. El inicio de sesion y la eleccion de portales son unicos y viven en el Portal Administrativo:
++// este portal no tiene login ni selector propios. Cambiar las direcciones al publicar.
 +export const PORTALES = {
-+  administrativo: 'http://localhost:4200'
++  administrativo: 'http://localhost:4200',
++  administrativoApi: 'http://localhost:5118/api'
 +};
+diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard.spec.ts b/src/app/core/auth/portales.guard.spec.ts
+--- a/src/app/core/auth/portales.guard.spec.ts	1969-12-31 21:00:00.000000000 -0300
++++ b/src/app/core/auth/portales.guard.spec.ts	2026-10-18 21:07:48.756188500 -0300
+@@ -0,0 +1,13 @@
++import { TestBed } from '@angular/core/testing';
++import { volverALosPortalesGuard } from './portales.guard';
++import { navegador } from './navegador';
++import { PORTALES } from './portales.config';
++
++describe('volverALosPortalesGuard', () => {
++  it('manda a la eleccion de portales del Portal Administrativo y no abre ninguna pantalla propia', () => {
++    const irA = spyOn(navegador, 'irA');
++    const resultado = TestBed.runInInjectionContext(() => volverALosPortalesGuard({} as never, {} as never));
++    expect(resultado).toBeFalse();
++    expect(irA).toHaveBeenCalledWith(`${PORTALES.administrativo}/portales`);
++  });
++});
+diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/portales.guard.ts b/src/app/core/auth/portales.guard.ts
+--- a/src/app/core/auth/portales.guard.ts	1969-12-31 21:00:00.000000000 -0300
++++ b/src/app/core/auth/portales.guard.ts	2026-10-18 21:07:48.754673500 -0300
+@@ -0,0 +1,9 @@
++import { CanActivateFn } from '@angular/router';
++import { PORTALES } from './portales.config';
++import { navegador } from './navegador';
++
++// Hay una sola eleccion de portales: la del Portal Administrativo. Todo "volver a portales" de este portal va para alla.
++export const volverALosPortalesGuard: CanActivateFn = () => {
++  navegador.irA(`${PORTALES.administrativo}/portales`);
++  return false;
++};
+diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/roles.ts b/src/app/core/auth/roles.ts
+--- a/src/app/core/auth/roles.ts	2026-10-18 17:57:46.972406500 -0300
++++ b/src/app/core/auth/roles.ts	2026-10-18 21:07:48.788233400 -0300
+@@ -34,6 +34,8 @@
+   '3': 'medico',
+   medico: 'medico',
+   '4': 'dt',
++  '6': 'dt',
++  'preparador fisico': 'dt',
+   dt: 'dt',
+   tecnico: 'dt',
+   'director tecnico': 'dt',
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.spec.ts b/src/app/core/auth/sso.spec.ts
 --- a/src/app/core/auth/sso.spec.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/sso.spec.ts	2026-10-18 18:07:32.125053700 -0300
++++ b/src/app/core/auth/sso.spec.ts	2026-10-18 21:07:48.524705400 -0300
 @@ -0,0 +1,20 @@
 +import { tokenDelFragmento } from './sso';
 +
@@ -33,7 +86,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.spec.ts b/
 +});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.ts b/src/app/core/auth/sso.ts
 --- a/src/app/core/auth/sso.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/core/auth/sso.ts	2026-10-18 18:07:32.125053700 -0300
++++ b/src/app/core/auth/sso.ts	2026-10-18 21:07:48.523187400 -0300
 @@ -0,0 +1,9 @@
 +// El Portal Administrativo abre este portal con la sesión en el fragmento de la dirección (#sso=<token>). Va en el fragmento
 +// y no en la query para que el token no viaje al servidor ni quede en sus registros.
@@ -46,7 +99,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/core/auth/sso.ts b/src/a
 +}
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html
 --- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 17:57:47.224832700 -0300
-+++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 18:07:32.194957700 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-18 21:07:48.687059900 -0300
 @@ -111,10 +111,26 @@
            </div>
  
@@ -80,7 +133,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-juga
              <!-- Nombre y Apellido -->
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts
 --- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 17:57:47.272891300 -0300
-+++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 18:07:32.186642100 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-18 21:07:48.662993500 -0300
 @@ -57,6 +57,8 @@
    nombre = '';
    apellido = '';
@@ -109,7 +162,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-alta-juga
        clubOrigen: this.clubOrigen?.trim() || null,
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-home/admin-home.component.ts b/src/app/features/admin-home/admin-home.component.ts
 --- a/src/app/features/admin-home/admin-home.component.ts	2026-10-18 17:57:47.994034000 -0300
-+++ b/src/app/features/admin-home/admin-home.component.ts	2026-10-18 18:07:32.196954700 -0300
++++ b/src/app/features/admin-home/admin-home.component.ts	2026-10-18 21:07:48.719102100 -0300
 @@ -241,7 +241,7 @@
    getBadgeClass(estado: Player['estadoCuota']): string {
      const e = (estado || '').toUpperCase();
@@ -121,7 +174,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-home/admi
    }
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts
 --- a/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 17:57:48.287479200 -0300
-+++ b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 18:07:32.212524900 -0300
++++ b/src/app/features/admin-lista-jugadores/admin-lista-jugadores.ts	2026-10-18 21:07:48.750663300 -0300
 @@ -385,7 +385,7 @@
    getBadgeClass(estado: Player['estadoCuota']): string {
      const e = (estado || '').toUpperCase();
@@ -131,18 +184,198 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-lista-jug
      if (e.includes('ADEUDA') || e.includes('INHABILITADO')) return 'badge-adeuda';
      return '';
    }
+diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-seleccion-portales/seleccion-portal.component.css b/src/app/features/admin-seleccion-portales/seleccion-portal.component.css
+--- a/src/app/features/admin-seleccion-portales/seleccion-portal.component.css	2026-10-18 17:57:48.862333300 -0300
++++ b/src/app/features/admin-seleccion-portales/seleccion-portal.component.css	1969-12-31 21:00:00.000000000 -0300
+@@ -1 +0,0 @@
+-:host{display:block;min-height:100%;color:var(--cacc-text,#252525);background:#fff}.cacc-layout{display:block;width:100%;height:auto;min-height:0;overflow:visible;background:#fff}.cacc-layout>.sidebar,.cacc-layout>.main-wrapper>.top-header{display:none}.cacc-layout>.main-wrapper{display:block;width:100%;height:auto;min-height:0;overflow:visible}.content-body,.role-content,.feature-page,.profile-page,.roster-page,.medical-page{display:block;width:100%;max-width:none;min-height:0;margin:0;padding:16px;background:#fff;overflow:visible}h1,.page-section-title{margin:0 0 14px;font-size:18px;line-height:1.25}h2{font-size:16px}.table-card,.card-col,.panel,.form-card,.filter-bar-card,.manager,.profile-card,.medical-card{width:100%;min-width:0;margin:0 0 12px;padding:12px;background:#fff;border:1px solid var(--cacc-line,#dfe4e2);border-radius:10px;box-shadow:none}.table-controls,.filter-left-group,.filters-row,.form-row,.button-row,.actions,.manager,.page-header{display:flex;flex-direction:column;align-items:stretch;gap:10px}.search-box,.search-field,.select-box,.form-group,label{width:100%;max-width:none;min-width:0}input,select,textarea,.search-input,.form-input{width:100%;min-width:0;min-height:42px;padding:9px 12px;border:1px solid #aeb4b1;border-radius:8px;background:#fff;font-size:14px}.search-input{padding-left:42px}.kpi-cards-grid,.kpi-row,.stats-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 16px}.kpi-card{min-width:0;min-height:76px;padding:14px;border:1px solid var(--cacc-line,#dfe4e2);border-radius:11px;background:#fff;box-shadow:none}.kpi-value{font-size:24px}.kpi-card:nth-child(n+3){display:none}.table-responsive{overflow:visible;border:0}.cacc-table,table{display:block;width:100%;table-layout:auto}.cacc-table thead,table thead{display:none}.cacc-table tbody,table tbody{display:grid;gap:8px}.cacc-table tr,table tr{display:grid;grid-template-columns:auto 1fr auto;gap:5px 10px;padding:10px 12px;border:1px solid var(--cacc-line,#dfe4e2);border-radius:9px;background:#fff}.cacc-table td,table td{display:block;width:auto;padding:0;border:0;white-space:normal;font-size:12px}.cacc-table td:first-child,table td:first-child{grid-row:1/span 2;align-self:center}.cacc-table td:nth-child(2),table td:nth-child(2){font-size:14px;font-weight:800}.cacc-table td:last-child,table td:last-child{grid-column:1/-1}.ficha-3cols-layout,.info-grid,.profile-grid,.form-grid,.record-card,.partido-form-grid{display:grid;grid-template-columns:1fr;gap:12px}.profile-header{display:grid;grid-template-columns:58px 1fr;gap:12px;margin:0 0 12px;padding:16px;border:1px solid var(--cacc-line,#dfe4e2);border-radius:10px;background:linear-gradient(var(--cacc-mint,#e5f4ed) 0 55%,#fff 55%)}.profile-header .actions{grid-column:1/-1}.avatar,.big-avatar-circle{width:58px;height:58px}.info-grid dl div,dl div{display:grid;grid-template-columns:minmax(90px,.8fr) 1.2fr;gap:8px;padding:5px 0}dt{font-size:12px;color:var(--cacc-muted,#7a7d7c)}dd{margin:0;font-size:12px;text-align:right}.history-table,.partidos-table{display:table;font-size:10px}.history-table thead,.partidos-table thead{display:table-header-group}.history-table tbody,.partidos-table tbody{display:table-row-group}.history-table tr,.partidos-table tr{display:table-row;padding:0;border:0}.history-table td,.partidos-table td{display:table-cell;padding:7px}.popup-overlay{position:fixed}.popup-card{width:calc(100vw - 32px);max-width:390px;max-height:calc(100dvh - 32px);padding:16px;overflow:auto}.filter-pills-row,.position-filters,.role-filters{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none}.cards-grid,.card-grid,.players-grid,.staff-grid,.categories-grid,.category-grid{display:grid;grid-template-columns:1fr;gap:8px}.player-card,.staff-card,.category-card{min-width:0;padding:12px;border:1px solid var(--cacc-line,#dfe4e2);border-radius:10px;box-shadow:none}.back-link{display:inline-block;margin-bottom:12px;color:var(--cacc-green,#008443);font-size:13px;font-weight:700;text-decoration:none}.portal-layout{min-height:100dvh;padding:24px 15px;background:linear-gradient(45deg,var(--cacc-green) 0 52%,var(--cacc-green-dark) 52%)}.portal-header{display:grid;justify-items:center;color:#fff;background:transparent}.logo{width:105px}.club-name{display:block;max-width:300px;font-size:19px;font-weight:800;text-align:center;text-transform:uppercase}.btn-logout,.main-title,.portal-footer{display:none}.portal-main{padding:10px 0}.cards-container{display:grid;gap:16px}.portal-card{padding:26px 30px 20px;background:#fff;border-radius:7px}.portal-card h2{font-size:22px}.portal-card p{color:#697386;font-size:14px;line-height:1.65}.tags-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px}.btn-enter{width:100%;min-height:43px;margin-top:20px}.portal-card:nth-child(3){display:none}@media (max-width:767px){:host{--viewport-tier:mobile}}@media (min-width:768px) and (max-width:1439px),(min-width:1440px){.portal-layout{display:flex;flex-direction:column;min-height:100vh;background-color:#014322;background-image:linear-gradient(135deg,#013a1d 0%,#02592d 100%);font-family:'Segoe UI',sans-serif;color:#FFFFFF;padding:0 40px;}.portal-header{display:flex;justify-content:space-between;align-items:center;padding:30px 0;}.logo-container{display:flex;align-items:center;gap:15px;}.logo{width:40px;height:auto;}.club-name{font-weight:600;font-size:16px;letter-spacing:0.5px;}.btn-logout{display:flex;align-items:center;gap:8px;background:transparent;border:1px solid rgba(255,255,255,0.4);color:#FFFFFF;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;transition:background 0.2s ease;}.btn-logout:hover{background:rgba(255,255,255,0.1);}.portal-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:40px;}.main-title{font-size:32px;font-weight:700;margin-bottom:40px;color:#FFFFFF;text-shadow:0px 2px 4px rgba(0,0,0,0.3);}.cards-container{display:flex;flex-direction:row;gap:30px;justify-content:center;flex-wrap:wrap;max-width:1200px;}.portal-card{background:#F8F9FA;border-radius:16px;padding:32px;width:340px;display:flex;flex-direction:column;box-shadow:0px 10px 30px rgba(0,0,0,0.25);color:#333333;}.portal-card h2{font-size:22px;font-weight:700;color:#111827;margin:0 0 12px 0;}.portal-card p{font-size:14px;line-height:1.5;color:#6B7280;margin:0 0 24px 0;flex-grow:1;}.tags-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px;}.tag{background:#F0FDF4;border:1px solid #D1FAE5;color:#065F46;font-size:12px;font-weight:500;padding:8px;border-radius:6px;display:flex;align-items:center;gap:6px;}.tag::before{content:'✓';color:#059669;font-weight:bold;}.btn-enter{background:#007A3D;color:#FFFFFF;border:none;border-radius:8px;padding:12px 0;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.2s ease,transform 0.1s ease;width:100%;}.btn-enter:hover{background:#006030;}.btn-enter:active{transform:scale(0.98);}.portal-footer{text-align:center;padding:20px 0;font-size:12px;color:rgba(255,255,255,0.6);}.cacc-layout>.sidebar,.cacc-layout>.main-wrapper>.top-header{display:none}.cacc-layout>.main-wrapper{display:block;width:100%;height:auto;min-height:0;overflow:visible}}@media (min-width:1440px){:host{--viewport-tier:desktop}}@media (prefers-reduced-motion:reduce){*{transition:none;animation:none}}
+diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-seleccion-portales/seleccion-portal.component.html b/src/app/features/admin-seleccion-portales/seleccion-portal.component.html
+--- a/src/app/features/admin-seleccion-portales/seleccion-portal.component.html	2026-10-18 17:57:48.904462900 -0300
++++ b/src/app/features/admin-seleccion-portales/seleccion-portal.component.html	1969-12-31 21:00:00.000000000 -0300
+@@ -1,70 +0,0 @@
+-<div class="portal-layout">
+-  <!-- Encabezado -->
+-  <header class="portal-header">
+-    <div class="logo-container">
+-      <img src="cacc-logo.png" alt="Escudo CACC" class="logo" />
+-      <span class="club-name">Club Atlético Camioneros de Córdoba</span>
+-    </div>
+-    <button type="button" class="btn-logout" (click)="cerrarSesion()">
+-      <span class="icon-logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span> Cerrar sesión
+-    </button>
+-  </header>
+-
+-  <!-- Contenido Principal -->
+-  <main class="portal-main">
+-    <h1 class="main-title">¿A qué portal querés ingresar?</h1>
+-
+-    <div class="cards-container">
+-
+-      <!-- 1. Portal Administrativo -->
+-      <div class="portal-card">
+-        <h2>Portal Administrativo</h2>
+-        <p>Acceso para personal administrativo y directivos. Gestión de socios, cuotas, documentación y reportes financieros.</p>
+-
+-        <div class="tags-grid">
+-          <span class="tag">Gestión de socios</span>
+-          <span class="tag">Cuotas y pagos</span>
+-          <span class="tag">Documentación</span>
+-          <span class="tag">Reportes</span>
+-        </div>
+-
+-        <button type="button" class="btn-enter" (click)="navegar('administrativo')">Ingresar al Portal Administrativo ›</button>
+-      </div>
+-
+-      <!-- 2. Portal Deportivo -->
+-      <div class="portal-card">
+-        <h2>Portal Deportivo</h2>
+-        <p>Acceso para profesores, entrenadores y gestión de jugadores. Categorías, asistencia y seguimiento deportivo.</p>
+-
+-        <div class="tags-grid">
+-          <span class="tag">Jugadores</span>
+-          <span class="tag">Profesores</span>
+-          <span class="tag">Categorías</span>
+-          <span class="tag">Seguimiento</span>
+-        </div>
+-
+-        <button type="button" class="btn-enter" (click)="navegar('deportivo')">Ingresar al Portal Deportivo ›</button>
+-      </div>
+-
+-      <!-- 3. Registro de Personas -->
+-      <div class="portal-card">
+-        <h2>Registro de Personas</h2>
+-        <p>Módulo de gestión de altas, registros y control centralizado de usuarios e individuos del sistema.</p>
+-
+-        <div class="tags-grid">
+-          <span class="tag">Alta de usuarios</span>
+-          <span class="tag">Edición de datos</span>
+-          <span class="tag">Consultas</span>
+-        </div>
+-
+-        <button type="button" class="btn-enter" (click)="navegar('personas')">Ingresar a Registro de Personas ›</button>
+-      </div>
+-
+-    </div>
+-  </main>
+-
+-  <!-- Pie de página -->
+-  <footer class="portal-footer">
+-    CACC © 2026 — Todos los derechos reservados
+-  </footer>
+-</div>
+diff -ruN -x node_modules -x .angular -x dist a/src/app/features/admin-seleccion-portales/seleccion-portal.component.ts b/src/app/features/admin-seleccion-portales/seleccion-portal.component.ts
+--- a/src/app/features/admin-seleccion-portales/seleccion-portal.component.ts	2026-10-18 17:57:48.945947500 -0300
++++ b/src/app/features/admin-seleccion-portales/seleccion-portal.component.ts	1969-12-31 21:00:00.000000000 -0300
+@@ -1,69 +0,0 @@
+-import { Component, OnInit, inject } from '@angular/core';
+-import { CommonModule } from '@angular/common';
+-import { Router } from '@angular/router';
+-import { AuthService } from '../../shared/services/auth.service';
+-
+-@Component({
+-  selector: 'app-seleccion-portal',
+-  standalone: true,
+-  imports: [CommonModule],
+-  templateUrl: './seleccion-portal.component.html',
+-  styleUrl: './seleccion-portal.component.css'
+-})
+-export class SeleccionPortalComponent implements OnInit {
+-  private readonly router = inject(Router);
+-  private readonly authService = inject(AuthService);
+-
+-  ngOnInit(): void {
+-    // 1. Verificamos si el usuario está autenticado
+-    if (!this.authService.estaAutenticado()) {
+-      this.router.navigate(['/login']);
+-      return;
+-    }
+-
+-    // 2. Control de Accesos (RBAC): El Administrador (Tesorero) es el único con acceso a esta pantalla
+-    const rol = (this.authService.getRol() || '').trim().toLowerCase();
+-    const esAdmin = rol.includes('tesorero') || rol.includes('administrador') || rol === '1';
+-
+-    if (!esAdmin) {
+-      // Si no es el administrador, lo redirigimos forzosamente a su área de trabajo según su rol
+-      if (rol.includes('coordinador') || rol === '7') {
+-        this.router.navigate(['/coordinador']);
+-      } else if (rol.includes('técnico') || rol.includes('tecnico') || rol.includes('dt') || rol === '4') {
+-        this.router.navigate(['/dt']);
+-      } else if (rol.includes('médico') || rol.includes('medico') || rol === '3') {
+-        this.router.navigate(['/medico']);
+-      } else if (rol.includes('administrativo') || rol === '2') {
+-        this.router.navigate(['/admin']);
+-      } else if (rol.includes('qr') || rol === '5') {
+-        this.router.navigate(['/semaforo-qr']);
+-      } else if (rol.includes('físico') || rol.includes('fisico') || rol === '6') {
+-        this.router.navigate(['/dt']);
+-      } else {
+-        this.cerrarSesion();
+-      }
+-    }
+-  }
+-
+-  // Método para redirigir según el portal seleccionado
+-  navegar(portal: 'administrativo' | 'deportivo' | 'personas'): void {
+-    switch (portal) {
+-      case 'administrativo':
+-        alert('El Portal Administrativo se encuentra en desarrollo.');
+-        break;
+-      case 'deportivo':
+-        // Redirige al panel principal del administrador / tesorero
+-        this.router.navigate(['/admin']);
+-        break;
+-      case 'personas':
+-        // Redirige a la pantalla de selección de altas (staff y jugadores)
+-        this.router.navigate(['/admin/registro-personas']);
+-        break;
+-    }
+-  }
+-
+-  cerrarSesion(): void {
+-    this.authService.logout();
+-    this.router.navigate(['/login']);
+-  }
+-}
+diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.component.css b/src/app/features/login/login.component.css
+--- a/src/app/features/login/login.component.css	2026-10-18 17:57:51.859944800 -0300
++++ b/src/app/features/login/login.component.css	1969-12-31 21:00:00.000000000 -0300
+@@ -1,5 +0,0 @@
+-:host{--primary-green:#008443;--dark-green:#006532;--surface:#fff;--text-main:#171717;--text-muted:#777;--border-color:#dfe3e1;display:block;min-height:100dvh;font-family:Inter,system-ui,sans-serif}.layout{position:relative;display:grid;min-height:100dvh;padding:28px 20px;background:linear-gradient(45deg,var(--primary-green) 0 52%,var(--dark-green) 52%);overflow:hidden}.bg-shapes{position:absolute;inset:0;pointer-events:none}.shape-dark,.shape-light{position:absolute;width:110vw;height:80px;background:#ffffff0a;transform:rotate(45deg)}.shape-dark{top:110px;left:-45vw}.shape-light{right:-45vw;bottom:100px}.left-panel,.right-panel{position:relative;z-index:1}.left-panel{align-self:start;display:grid;justify-items:center;color:#fff;text-align:center}.logo-container{margin:4px 0 10px}.club-logo{display:block;width:96px;height:96px;object-fit:contain}.club-title{margin:0;font-size:19px;line-height:1.2}.right-panel{align-self:start;margin-top:24px}.login-card{width:100%;max-width:366px;margin:0 auto;padding:40px 16px 56px;background:#fff;border-radius:20px;box-shadow:0 5px 10px #001b0f55}.avatar-container{display:flex;justify-content:center;margin-bottom:8px}.avatar-icon{display:grid;place-items:center;width:66px;height:66px;color:var(--primary-green);border:3px solid var(--border-color);border-radius:50%}.avatar-icon svg{width:28px}.login-card h2{margin:0 0 6px;font-size:24px;text-align:center}.subtitle{margin:0 0 26px;color:var(--text-muted);font-size:16px;text-align:center}.form-group{margin-bottom:14px}.form-group label{display:block;margin:0 0 7px 6px;font-size:14px;font-weight:700}.input-wrapper{position:relative;display:flex;align-items:center}.input-wrapper input{width:100%;height:52px;padding:10px 46px;border:2px solid var(--border-color);border-radius:7px;outline:0;background:#fff;font-size:16px}.input-wrapper input:focus{border-color:var(--primary-green);box-shadow:0 0 0 3px #00844320}.input-icon,.password-toggle{position:absolute;width:22px;height:22px;color:#777}.left-icon{left:13px}.password-toggle{right:12px;padding:0;border:0;background:transparent}.submit-btn{width:100%;height:52px;margin-top:24px;color:#fff;background:var(--primary-green);border:0;border-radius:7px;font-size:18px;font-weight:700}.submit-btn:disabled{opacity:.55}.login-feedback{margin-top:12px;padding:10px;color:#991b1b;background:#fee2e2;border-radius:7px;font-size:13px}.divider{display:flex;align-items:center;gap:14px;margin:48px 0 26px;color:#aaa}.divider::before,.divider::after{content:'';flex:1;height:1px;background:#bbb}.forgot-password{text-align:center}.forgot-password a{display:inline-flex;align-items:center;gap:6px;color:var(--primary-green);font-weight:600;text-decoration:none}.forgot-password svg{width:20px}
+-@media (max-width:767px){.layout{grid-template-rows:auto 1fr}.right-panel{display:flex;justify-content:center}.login-card{min-height:640px}}
+-@media (min-width:768px) and (max-width:1439px){.layout{grid-template-columns:minmax(260px,.8fr) minmax(400px,1.2fr);align-items:center;padding:40px}.left-panel{align-self:center}.club-logo{width:180px;height:180px}.club-title{font-size:21px}.right-panel{align-self:center;margin:0}.login-card{max-width:430px;padding:44px 36px;border-radius:16px}.divider{margin-top:36px}}
+-@media (min-width:1440px){.layout{grid-template-columns:1fr 1fr;align-items:center;padding:60px}.left-panel{align-self:center;padding-right:12vw}.club-logo{width:260px;height:260px}.club-title{font-size:22px}.right-panel{align-self:center;margin:0}.login-card{max-width:450px;min-height:650px;padding:50px 40px;border-radius:14px}.divider{margin-top:40px}}
+-@media (prefers-reduced-motion:reduce){*{transition:none}}
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.component.html b/src/app/features/login/login.component.html
 --- a/src/app/features/login/login.component.html	2026-10-18 17:57:51.900866800 -0300
-+++ b/src/app/features/login/login.component.html	2026-10-18 18:07:32.155121700 -0300
-@@ -22,70 +22,14 @@
-         </div>
-       </div>
- 
++++ b/src/app/features/login/login.component.html	1969-12-31 21:00:00.000000000 -0300
+@@ -1,91 +0,0 @@
+-<div class="layout">
+-  <div class="bg-shapes" aria-hidden="true">
+-    <div class="shape-dark"></div>
+-    <div class="shape-light"></div>
+-  </div>
+-
+-  <section class="left-panel" aria-label="Club Atlético Social y Deportivo Camioneros">
+-    <div class="logo-container">
+-      <img src="cacc-logo.png" alt="Escudo Club Camioneros" class="club-logo" />
+-    </div>
+-    <h1 class="club-title">CLUB ATLETICO SOCIAL Y<br />DEPORTIVO CAMIONEROS</h1>
+-  </section>
+-
+-  <main class="right-panel">
+-    <div class="login-card">
+-      <div class="avatar-container" aria-hidden="true">
+-        <div class="avatar-icon">
+-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+-            <circle cx="12" cy="7" r="4"></circle>
+-          </svg>
+-        </div>
+-      </div>
+-
 -      <h2>Iniciar sesión</h2>
 -      <p class="subtitle">Accedé al panel de administración</p>
-+      <h2>Portal Deportivo</h2>
-+      <p class="subtitle">{{ recibiendoSesion ? 'Ingresando…' : 'El inicio de sesión es único para los dos portales.' }}</p>
- 
+-
 -      <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
 -        <div class="form-group">
 -          <label for="login-email">Email</label>
@@ -190,8 +423,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
 -        <button type="submit" [disabled]="loginForm.invalid || isLoading" class="submit-btn">
 -          {{ isLoading ? 'Iniciando sesión...' : 'Iniciar sesión' }}
 -        </button>
-+      <div *ngIf="errorMessage" class="login-feedback" role="alert">{{ errorMessage }}</div>
- 
+-
 -        <div *ngIf="errorMessage" class="login-feedback" role="alert">{{ errorMessage }}</div>
 -
 -        <div class="divider"><span>o</span></div>
@@ -205,36 +437,35 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
 -          </a>
 -        </div>
 -      </form>
-+      <button *ngIf="!recibiendoSesion" type="button" class="submit-btn" (click)="irAlInicioDeSesion()">
-+        Iniciar sesión en el Portal Administrativo
-+      </button>
-     </div>
-   </main>
- </div>
+-    </div>
+-  </main>
+-</div>
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.component.ts b/src/app/features/login/login.component.ts
 --- a/src/app/features/login/login.component.ts	2026-10-18 17:57:51.941049500 -0300
-+++ b/src/app/features/login/login.component.ts	2026-10-18 18:07:32.143611300 -0300
-@@ -1,62 +1,56 @@
++++ b/src/app/features/login/login.component.ts	2026-10-18 21:07:48.758690200 -0300
+@@ -1,62 +1,41 @@
 -import { Component, inject } from '@angular/core';
 -import { CommonModule } from '@angular/common';
 -import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 +import { Component, OnInit, PLATFORM_ID, inject } from '@angular/core';
-+import { CommonModule, isPlatformBrowser } from '@angular/common';
++import { isPlatformBrowser } from '@angular/common';
  import { ActivatedRoute, Router } from '@angular/router';
  import { AuthService } from '../../shared/services/auth.service';
  import { homeForRole, normalizeRole } from '../../core/auth/roles';
 +import { PORTALES } from '../../core/auth/portales.config';
++import { navegador } from '../../core/auth/navegador';
 +import { tokenDelFragmento } from '../../core/auth/sso';
  
-+// El inicio de sesión es único y vive en el Portal Administrativo. Esta pantalla ya no pide usuario y contraseña: recibe la
-+// sesión que ese portal le entrega (#sso=<token>) o, si no hay, manda a la persona a iniciar sesión allá.
++// Este portal NO tiene login. El inicio de sesion es unico y vive en el Portal Administrativo. Esta ruta solo recibe la
++// sesion que ese portal entrega (#sso=<token>) y, si no hay una valida, manda de inmediato al login unico: no muestra nada.
  @Component({
    selector: 'app-login',
    standalone: true,
 -  imports: [CommonModule, ReactiveFormsModule],
-+  imports: [CommonModule],
-   templateUrl: './login.component.html',
-   styleUrls: ['./login.component.css']
+-  templateUrl: './login.component.html',
+-  styleUrls: ['./login.component.css']
++  template: '<p class="entrando" role="status">Ingresando&hellip;</p>',
++  styles: [':host{display:grid;place-items:center;min-height:100dvh;font-family:Inter,system-ui,sans-serif;color:#555}']
  })
 -export class LoginComponent {
 -  private readonly fb = inject(FormBuilder);
@@ -248,46 +479,33 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
 -    email: ['', Validators.required],
 -    password: ['', Validators.required]
 -  });
--
++  ngOnInit(): void {
++    if (!this.esNavegador) return;
+ 
 -  errorMessage: string = '';
 -  isLoading: boolean = false;
 -  showPassword: boolean = false;
-+  errorMessage = '';
-+  recibiendoSesion = false;
- 
+-
 -  togglePassword(): void {
 -    this.showPassword = !this.showPassword;
 -  }
-+  ngOnInit(): void {
-+    if (!this.esNavegador) return;
-+
-+    const token = tokenDelFragmento(window.location.hash);
-+    if (!token) return;
- 
+-
 -  onSubmit(): void {
 -    if (this.loginForm.invalid) {
-+    // El token sale de la dirección enseguida: no queda en el historial ni se copia al compartir el enlace.
-+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
++    const token = tokenDelFragmento(window.location.hash);
++    // El token sale de la direccion enseguida: no queda en el historial ni se copia al compartir el enlace.
++    if (token) window.history.replaceState(null, '', window.location.pathname + window.location.search);
 +
-+    if (!this.authService.iniciarSesionConToken(token)) {
-+      this.errorMessage = 'La sesión que llegó del Portal Administrativo no es válida, venció o no tiene acceso a este portal. Volvé a ingresar desde allá.';
++    const role = token && this.authService.iniciarSesionConToken(token) ? normalizeRole(this.authService.getRol()) : null;
++    if (!role) {
++      this.authService.logout();
++      navegador.irA(PORTALES.administrativo);
        return;
      }
  
 -    this.isLoading = true;
 -    this.errorMessage = '';
-+    const role = normalizeRole(this.authService.getRol());
-+    if (!role) {
-+      this.authService.logout();
-+      this.errorMessage = 'Tu usuario no tiene un rol habilitado en este portal.';
-+      return;
-+    }
-+
-+    this.recibiendoSesion = true;
-+    const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
-+    void this.router.navigateByUrl(returnUrl?.startsWith('/') ? returnUrl : homeForRole(role));
-+  }
- 
+-
 -    this.authService.login(this.loginForm.value).subscribe({
 -      next: (res) => {
 -        this.isLoading = false;
@@ -307,13 +525,13 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/login/login.com
 -        this.errorMessage = 'Credenciales incorrectas o usuario inactivo.';
 -      }
 -    });
-+  irAlInicioDeSesion(): void {
-+    window.location.assign(PORTALES.administrativo);
++    const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
++    void this.router.navigateByUrl(returnUrl?.startsWith('/') ? returnUrl : homeForRole(role));
    }
  }
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.html b/src/app/features/semaforo-qr/semaforo-qr.html
 --- a/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 17:57:53.170974600 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 18:07:32.160621300 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.html	2026-10-18 21:07:48.617412300 -0300
 @@ -7,6 +7,6 @@
    <p *ngIf="state==='loading'" role="status">Procesando…</p>
  </section>
@@ -325,7 +543,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
  </section></main>
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.spec.ts b/src/app/features/semaforo-qr/semaforo-qr.spec.ts
 --- a/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 17:57:53.212412100 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 18:07:32.171132500 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 21:07:48.620412100 -0300
 @@ -33,6 +33,39 @@
      expect(document.activeElement).toBe(heading);
    }));
@@ -368,7 +586,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
      fixture.componentInstance.dni = '40111222';
 diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/semaforo-qr.ts b/src/app/features/semaforo-qr/semaforo-qr.ts
 --- a/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 17:57:53.253147400 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 18:07:32.158119000 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 21:07:48.611895100 -0300
 @@ -22,10 +22,14 @@
        this.cameraStarted=true; this.state='scanner';
      }catch{this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}
@@ -385,9 +603,23 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/features/semaforo-qr/sem
 +  private processPayload(payload:string):void{const dni=(payload.match(/\d{7,9}/)?.[0]??'').trim();if(!dni){this.error='El código QR o DNI no es válido.';this.state='error';return}this.locked=true;this.stopCamera();this.state='loading';this.api.registrar(dni).pipe(finalize(()=>this.locked=false)).subscribe({next:r=>{if(r.accesoPermitido&&!r.asistenciaRegistrada&&!r.yaRegistrada){this.error='El servidor no confirmó el registro de asistencia.';this.state='error';return}this.result=r;this.state='result';setTimeout(()=>this.resultHeading?.nativeElement.focus())},error:e=>{this.error=e?.error?.message??'No se pudo registrar el ingreso.';this.state='error'}})}
    private stopCamera():void{this.controls?.stop();this.controls=undefined;this.cameraStarted=false;this.video?.nativeElement.srcObject&&Array.from((this.video.nativeElement.srcObject as MediaStream).getTracks()).forEach(t=>t.stop())}
  }
+diff -ruN -x node_modules -x .angular -x dist a/src/app/routes/admin.routes.ts b/src/app/routes/admin.routes.ts
+--- a/src/app/routes/admin.routes.ts	2026-10-18 17:57:54.203225700 -0300
++++ b/src/app/routes/admin.routes.ts	2026-10-18 21:07:48.763191800 -0300
+@@ -1,8 +1,9 @@
+ import { Routes } from '@angular/router';
++import { volverALosPortalesGuard } from '../core/auth/portales.guard';
+ 
+ export const ADMIN_ROUTES: Routes = [
+   { path: '', title: 'Administración', loadComponent: () => import('../features/admin-home/admin-home.component').then((m) => m.AdminHomeComponent) },
+-  { path: 'portales', title: 'Portales', loadComponent: () => import('../features/admin-seleccion-portales/seleccion-portal.component').then((m) => m.SeleccionPortalComponent) },
++  { path: 'portales', canActivate: [volverALosPortalesGuard], children: [] },
+   { path: 'registro-personas', title: 'Registro de personas', loadComponent: () => import('../features/admin-registro-personas/admin-registro-personas.component').then((m) => m.AdminRegistroPersonasComponent) },
+   { path: 'jugadores', title: 'Jugadores', loadComponent: () => import('../features/admin-lista-jugadores/admin-lista-jugadores').then((m) => m.AdminListaJugadores) },
+   { path: 'jugadores/nuevo', title: 'Registrar jugador', loadComponent: () => import('../features/admin-alta-jugador/admin-alta-jugador.component').then((m) => m.AdminAltaJugadorComponent) },
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/asistencia.service.ts b/src/app/shared/services/asistencia.service.ts
 --- a/src/app/shared/services/asistencia.service.ts	2026-10-18 17:57:54.734604000 -0300
-+++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 18:07:32.157118400 -0300
++++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 21:07:48.585848800 -0300
 @@ -2,7 +2,8 @@
  import { Injectable, inject } from '@angular/core';
  import { Observable } from 'rxjs';
@@ -400,8 +632,8 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/asistenc
    private readonly http = inject(HttpClient);
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.service.sso.spec.ts b/src/app/shared/services/auth.service.sso.spec.ts
 --- a/src/app/shared/services/auth.service.sso.spec.ts	1969-12-31 21:00:00.000000000 -0300
-+++ b/src/app/shared/services/auth.service.sso.spec.ts	2026-10-18 18:07:32.142615500 -0300
-@@ -0,0 +1,53 @@
++++ b/src/app/shared/services/auth.service.sso.spec.ts	2026-10-18 21:07:48.814266700 -0300
+@@ -0,0 +1,63 @@
 +import { TestBed } from '@angular/core/testing';
 +import { provideHttpClient } from '@angular/common/http';
 +import { AuthService } from './auth.service';
@@ -435,6 +667,16 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
 +    expect(service.getRoleId()).toBe(1);
 +  });
 +
++  it('reconoce los roles con tilde que trae el token (el payload es UTF-8)', () => {
++    for (const [rol] of [['Médico'], ['Director Técnico'], ['Preparador Físico']] as const) {
++      localStorage.clear();
++      const crudo = new TextEncoder().encode(JSON.stringify({ [ROL]: rol, exp: enUnaHora }));
++      const b64 = btoa(String.fromCharCode(...crudo)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
++      expect(service.iniciarSesionConToken(`aaa.${b64}.firma`)).withContext(rol).toBeTrue();
++      expect(service.getRol()).toBe(rol);
++    }
++  });
++
 +  it('rechaza un token vencido', () => {
 +    expect(service.iniciarSesionConToken(token({ [ROL]: 'Coordinador', exp: 1 }))).toBeFalse();
 +    expect(service.getToken()).toBeNull();
@@ -457,8 +699,16 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
 +});
 diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.service.ts b/src/app/shared/services/auth.service.ts
 --- a/src/app/shared/services/auth.service.ts	2026-10-18 17:57:54.814105400 -0300
-+++ b/src/app/shared/services/auth.service.ts	2026-10-18 18:07:32.141610500 -0300
-@@ -41,6 +41,22 @@
++++ b/src/app/shared/services/auth.service.ts	2026-10-18 21:07:48.811763000 -0300
+@@ -2,6 +2,7 @@
+ import { HttpClient } from '@angular/common/http';
+ import { Observable, tap } from 'rxjs';
+ import { Capability, RoleId, hasCapability, normalizeRole } from '../../core/auth/roles';
++import { PORTALES } from '../../core/auth/portales.config';
+ 
+ @Injectable({
+   providedIn: 'root'
+@@ -41,6 +42,22 @@
      );
    }
  
@@ -481,7 +731,7 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
    getToken(): string | null {
      return this.storage?.getItem('jwt_token') ?? null;
    }
-@@ -55,11 +71,7 @@
+@@ -55,11 +72,7 @@
      const token = this.getToken();
      if (token) {
        try {
@@ -494,10 +744,27 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
        } catch {
          return null;
        }
-@@ -127,6 +139,14 @@
+@@ -84,6 +97,7 @@
+   }
+ 
+   logout(): void {
++    this.cerrarSesionEnElAdministrativo();
+     this.storage?.removeItem('jwt_token');
+     this.storage?.removeItem('user_rol');
+   }
+@@ -127,11 +141,29 @@
      return typeof localStorage === 'undefined' ? null : localStorage;
    }
  
++  // El login es unico: cerrar sesion aca tambien invalida el token en el Portal Administrativo (y con el, en los dos portales).
++  private cerrarSesionEnElAdministrativo(): void {
++    const token = this.getToken();
++    if (!token || typeof fetch === 'undefined') return;
++    try {
++      fetch(`${PORTALES.administrativoApi}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => undefined);
++    } catch { /* si no hay conexion, la sesion local se cierra igual */ }
++  }
++
 +  // El token compartido puede traer varios roles (por ejemplo el número del Administrativo y el nombre del rol deportivo):
 +  // se toma el primero que este portal reconoce.
 +  private elegirRol(payload: Record<string, any>): string | null {
@@ -509,3 +776,10 @@ diff -ruN -x node_modules -x .angular -x dist a/src/app/shared/services/auth.ser
    private decodeTokenPayload(token: string): Record<string, any> {
      const encoded = token.split('.')[1];
      if (!encoded) throw new Error('Invalid JWT');
+     const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(encoded.length / 4) * 4, '=');
+-    return JSON.parse(atob(base64));
++    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
++    return JSON.parse(new TextDecoder().decode(bytes));
+   }
+ }
+ 
