@@ -108,7 +108,7 @@ $cadena = "Server=$Servidor;Database=$Base;Trusted_Connection=True;TrustServerCe
 $json = @{
     Jwt = @{ Key = $clave; Issuer = 'CACC-Unificado'; Audience = 'CACC-Unificado' }
     ConnectionStrings = @{ ConexionSQL = $cadena }
-    Email = @{ PublicBaseUrl = 'http://localhost:4318'; LogResetLink = $true }
+    Email = @{ PublicBaseUrl = 'http://localhost:4200'; LogResetLink = $true }
 } | ConvertTo-Json -Depth 5
 Set-Content (Join-Path $n 'ApiGestion\appsettings.Development.json') $json -Encoding UTF8
 $json2 = @{

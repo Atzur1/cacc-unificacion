@@ -91,14 +91,17 @@ git clone https://github.com/NejoCHZ/App-Club-Atletico-Camioneros.git</pre>
   <li>Al empezar muestra “Versiones esperadas…”: es solo un aviso informativo, se puede ignorar. Sí tiene que decir <b>OK ellos-definitivo.patch</b> más adelante.</li>
   <li><code>-Recrear</code> borra y vuelve a crear <b>solamente</b> la base de prueba <code>ClubCamionerosUnificadaV2_Prueba</code>. Es seguro repetirlo.</li>
   <li>Si el servidor SQL no es <code>localhost</code>: agregar <code>-Servidor "localhost\SQLEXPRESS"</code>.</li>
+  <li><b>Usen PowerShell</b> para todos los comandos de esta guía. En Git Bash las barras invertidas de las rutas se pierden y los comandos fallan.</li>
 </ul>
 <div class="box ok"><b>Resultado esperado:</b> termina con “Compilación correcta” dos veces y sin ERROR en rojo.</div>
 
 <h2>5. Paso 4 · Dos formas de probar</h2>
 <h3>A) Prueba automática (10 minutos)</h3>
-<pre>.\scripts\probar.ps1
+<pre>.\scripts\iniciar.ps1
+.\scripts\probar.ps1
 .\scripts\detener.ps1</pre>
-<p>Levanta las dos APIs y corre 88 verificaciones contra la base real. Debe terminar con: <code>RESUMEN: 88 PASAN | 0 FALLAN | 0 GAP</code>. El detalle queda en <code>trabajo\resultado.txt</code>.</p>
+<p><code>iniciar.ps1</code> levanta las dos APIs (<code>probar.ps1</code> no las levanta: las necesita corriendo). Después <code>probar.ps1</code> corre 92 verificaciones contra la base real y debe terminar con: <code>RESUMEN: 92 PASAN | 0 FALLAN | 0 GAP</code>. El detalle queda en <code>trabajo\resultado.txt</code>.
+Si usan una instancia <code>SQLEXPRESS</code>, también hay que pasarle el servidor a <code>probar.ps1</code>: <code>.\scripts\probar.ps1 -Servidor "localhost\SQLEXPRESS"</code>.</p>
 <div class="box warn"><b>Ojo:</b> <code>probar.ps1</code> deja datos de prueba en la base. Si después quieren probar a mano, vuelvan a correr el Paso 3 (<code>armar.ps1 … -Recrear</code>) para empezar de cero.</div>
 
 <h3>B) Prueba manual en el navegador (la que más interesa)</h3>
@@ -176,7 +179,7 @@ git clone https://github.com/NejoCHZ/App-Club-Atletico-Camioneros.git</pre>
 
 <h3>6.6 Habilitar una cuenta (SuperAdmin) y roles</h3>
 <ul class="checks">
-  <li>Como SuperAdmin, habilitar a Ana (<code>30000002</code>) como Administradora. El sistema no manda correo en pruebas: el <b>enlace de activación</b> aparece en el archivo <code>cacc-unificacion\trabajo\log_nuestro.txt</code>.</li>
+  <li>Como SuperAdmin, habilitar a Ana (<code>30000002</code>) como Administradora. El sistema no manda correo en pruebas: el <b>enlace de activación</b> aparece en el archivo <code>cacc-unificacion\trabajo\log_nuestro.txt</code> y abre la pantalla de crear contraseña en el puerto 4200. (Si el entorno se armó con una versión anterior de <code>armar.ps1</code> y el enlace dice 4318, cambien ese número por 4200 o vuelvan a armar el entorno.)</li>
   <li>Ana crea su contraseña con ese enlace. Después entra por DNI y va <b>directo al Portal Administrativo</b> (no ve la elección de portales).</li>
   <li>Ana <b>no</b> ve Auditoría y <b>no</b> puede programar aranceles de inscripción.</li>
   <li>Ana no puede entrar al Deportivo.</li>
@@ -206,6 +209,7 @@ git clone https://github.com/NejoCHZ/App-Club-Atletico-Camioneros.git</pre>
   <tr><td>Los puertos 5118, 5191, 4200 o 4300 están ocupados</td><td>Correr <code>.\scripts\manual.ps1 -Detener</code> y volver a intentar; si sigue, cerrar el programa que los usa.</td></tr>
   <tr><td>Un frontend dice “No pasa nada” al abrirlo</td><td>Esperar a que la ventana de PowerShell correspondiente muestre <code>Local: http://localhost:...</code> (la primera compilación demora).</td></tr>
   <tr><td>Login: “credenciales incorrectas”</td><td>Usuario = DNI sin puntos; contraseña <code>Camioneros.Test.2026!</code> con mayúsculas y signo de cierre.</td></tr>
+  <tr><td>Una pestaña nueva del navegador pide volver a entrar</td><td>La sesión se guarda en la pestaña: una pestaña nueva, o una herramienta de pruebas que abre una pestaña por vez, empieza sin sesión. Si en la <b>misma</b> pestaña les pide volver a entrar al recargar con F5, avísennos con los pasos exactos.</td></tr>
   <tr><td>Todo da 401 de golpe</td><td>Se cerró la sesión o venció el token. Volver a entrar por <code>localhost:4200</code>.</td></tr>
   <tr><td>Quiero empezar de cero</td><td><code>.\scripts\manual.ps1 -Detener</code>, después repetir el Paso 3 y el Paso 4B.</td></tr>
 </table>
