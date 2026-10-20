@@ -29,6 +29,8 @@ Requisitos: .NET SDK 9, `sqlcmd`, Git para Windows (se usa su `patch.exe`) y SQL
    ```
 4. Frenar las APIs: `.\scripts\detener.ps1`.
 
+Si el clon del Deportivo ya trae los cambios (la rama `feat/base-unificada` del PR #22, o su `main` después de aceptarlo), `armar.ps1` y `manual.ps1` lo detectan y no aplican de nuevo el parche del Deportivo.
+
 Las pruebas del proyecto del Administrativo (`ApiGestion.Tests`, 415) contra la base unificada:
 ```powershell
 .\scripts\pruebas-del-proyecto.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC"

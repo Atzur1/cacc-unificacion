@@ -2,15 +2,15 @@
   "descripcion": "Versiones de cada repo contra las que se probaron los parches. Si aplican mal, alguno cambio.",
   "nuestro": {
     "repo": "Atzur1/Sistema-Administrativo---CACC",
-    "rama": "feat/paleta-avisos-azul",
-    "commit": "880fcf4",
-    "nota": "Estado del arbol de trabajo el 2026-10-17 (HEAD al inicio de la sesion). Confirmar con git log."
+    "rama": "main",
+    "commit": "con la regla de nombres (PR feat/nombres-en-formato-propio) y los cargos de alta (f88904e) mergeados",
+    "nota": "Estado probado el 2026-10-20: 104 verificaciones sin fallas. Si cambia, confirmar con git log."
   },
   "ellos": {
     "repo": "NejoCHZ/App-Club-Atletico-Camioneros",
-    "rama": "main",
-    "commit": "afa4e60",
-    "nota": "Ultimo commit de main al 2026-10-15 (LucasTalleres, 'Implementacion QR y vista mobile')."
+    "rama": "main (afa4e60) para los parches; el PR #22 (Atzur1:feat/base-unificada) ya trae todo",
+    "commit": "afa4e60 / PR #22 en 271cd0a4",
+    "nota": "Los parches se probaron sobre el main del 2026-10-15. Con el PR #22 aceptado (o con un clon de su rama) armar.ps1 y manual.ps1 omiten el parche."
   },
   "base": "ClubCamionerosUnificadaV2 (script del 2026-10-18)"
 }

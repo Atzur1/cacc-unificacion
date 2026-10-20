@@ -1,0 +1,255 @@
+diff -ruN a/CACC.API/DTOs/JugadorCreateDto.cs b/CACC.API/DTOs/JugadorCreateDto.cs
+--- a/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-20 20:04:31.133703500 -0300
++++ b/CACC.API/DTOs/JugadorCreateDto.cs	2026-10-20 20:04:31.132199000 -0300
+@@ -8,10 +8,12 @@
+         public string Dni { get; set; } = string.Empty;
+ 
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("fechaNacimiento")]
+         public DateTime? FechaNacimiento { get; set; }
+@@ -43,10 +45,12 @@
+         public string Dni { get; set; } = string.Empty;
+ 
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("telefono")]
+         public string? Telefono { get; set; }
+diff -ruN a/CACC.API/DTOs/JugadorUpdateDto.cs b/CACC.API/DTOs/JugadorUpdateDto.cs
+--- a/CACC.API/DTOs/JugadorUpdateDto.cs	2026-10-20 20:04:31.135710900 -0300
++++ b/CACC.API/DTOs/JugadorUpdateDto.cs	2026-10-20 20:04:31.134709000 -0300
+@@ -7,10 +7,12 @@
+     public class JugadorUpdateDto
+     {
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("dni")]
+         public string Dni { get; set; } = string.Empty;
+diff -ruN a/CACC.API/DTOs/StaffCreateDto.cs b/CACC.API/DTOs/StaffCreateDto.cs
+--- a/CACC.API/DTOs/StaffCreateDto.cs	2026-10-20 20:04:31.137216700 -0300
++++ b/CACC.API/DTOs/StaffCreateDto.cs	2026-10-20 20:04:31.135710900 -0300
+@@ -6,10 +6,12 @@
+     public class StaffCreateDto
+     {
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("dni")]
+         public string Dni { get; set; } = string.Empty;
+diff -ruN a/CACC.API/DTOs/StaffUpdateDto.cs b/CACC.API/DTOs/StaffUpdateDto.cs
+--- a/CACC.API/DTOs/StaffUpdateDto.cs	2026-10-20 20:04:31.139223800 -0300
++++ b/CACC.API/DTOs/StaffUpdateDto.cs	2026-10-20 20:04:31.139223800 -0300
+@@ -6,10 +6,12 @@
+     public class StaffUpdateDto
+     {
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("dni")]
+         public string Dni { get; set; } = string.Empty;
+diff -ruN a/CACC.API/DTOs/TutorDto.cs b/CACC.API/DTOs/TutorDto.cs
+--- a/CACC.API/DTOs/TutorDto.cs	2026-10-20 20:04:31.141226700 -0300
++++ b/CACC.API/DTOs/TutorDto.cs	2026-10-20 20:04:31.140228900 -0300
+@@ -8,10 +8,12 @@
+         public string Dni { get; set; } = string.Empty;
+ 
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("telefono")]
+         public string? Telefono { get; set; }
+@@ -29,10 +31,12 @@
+         public string Dni { get; set; } = string.Empty;
+ 
+         [JsonPropertyName("nombre")]
+-        public string Nombre { get; set; } = string.Empty;
++        public string Nombre { get => _nombre; set => _nombre = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _nombre = string.Empty;
+ 
+         [JsonPropertyName("apellido")]
+-        public string Apellido { get; set; } = string.Empty;
++        public string Apellido { get => _apellido; set => _apellido = CACC.Entities.NombresPropios.Normalizar(value); }
++        private string _apellido = string.Empty;
+ 
+         [JsonPropertyName("parentesco")]
+         public string Parentesco { get; set; } = "Padre";
+diff -ruN a/CACC.Entities/NombresPropios.cs b/CACC.Entities/NombresPropios.cs
+--- a/CACC.Entities/NombresPropios.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.Entities/NombresPropios.cs	2026-10-20 20:04:31.142224900 -0300
+@@ -0,0 +1,47 @@
++using System.Text;
++
++namespace CACC.Entities
++{
++    // Nombres y apellidos de personas, guardados siempre igual sin importar cómo se tipearon ("JUAN perez" -> "Juan Perez").
++    // La misma regla la usan los dos portales: la base es una sola y los datos tienen que quedar parejos.
++    public static class NombresPropios
++    {
++        // Van en minúscula salvo que sean la primera palabra ("María de los Ángeles", pero "De la Fuente").
++        private static readonly HashSet<string> Particulas = new(StringComparer.Ordinal)
++        {
++            "de", "del", "la", "las", "los", "y", "e"
++        };
++
++        public static string Normalizar(string? texto)
++        {
++            if (string.IsNullOrWhiteSpace(texto)) return string.Empty;
++
++            var palabras = texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
++            for (int i = 0; i < palabras.Length; i++)
++            {
++                string minuscula = palabras[i].ToLowerInvariant();
++                palabras[i] = i > 0 && Particulas.Contains(minuscula) ? minuscula : CapitalizarPalabra(minuscula);
++            }
++            return string.Join(' ', palabras);
++        }
++
++        // Mayúscula al inicio y después de guion o apóstrofo ("Pérez-Gómez", "D'Angelo"); "Mc" lleva mayúscula también en la siguiente ("McDonald").
++        private static string CapitalizarPalabra(string minuscula)
++        {
++            var resultado = new StringBuilder(minuscula.Length);
++            bool mayuscula = true;
++            for (int i = 0; i < minuscula.Length; i++)
++            {
++                char c = minuscula[i];
++                resultado.Append(mayuscula ? char.ToUpperInvariant(c) : c);
++                mayuscula = c is '-' or '\'' or '’';
++            }
++
++            if (resultado.Length > 2 && resultado[0] == 'M' && resultado[1] == 'c' && char.IsLetter(resultado[2]))
++            {
++                resultado[2] = char.ToUpperInvariant(resultado[2]);
++            }
++            return resultado.ToString();
++        }
++    }
++}
+diff -ruN a/CACC.Tests/NombresPropiosTests.cs b/CACC.Tests/NombresPropiosTests.cs
+--- a/CACC.Tests/NombresPropiosTests.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.Tests/NombresPropiosTests.cs	2026-10-20 20:04:31.143224300 -0300
+@@ -0,0 +1,80 @@
++using System.Text.Json;
++using CACC.API.DTOs;
++using CACC.Entities;
++using Xunit;
++namespace CACC.Tests;
++
++// Nombres y apellidos se guardan igual sin importar cómo se tipearon. La regla es la misma que usa el Portal Administrativo
++// (la base es una sola).
++public class NombresPropiosTests
++{
++    [Theory]
++    [InlineData("JUAN CARLOS", "Juan Carlos")]
++    [InlineData("juan carlos", "Juan Carlos")]
++    [InlineData("jUaN cArLoS", "Juan Carlos")]
++    [InlineData("  PEREZ   GOMEZ  ", "Perez Gomez")]
++    [InlineData("MARÍA DE LOS ÁNGELES", "María de los Ángeles")]
++    [InlineData("DE LA FUENTE", "De la Fuente")]
++    [InlineData("PÉREZ-GÓMEZ", "Pérez-Gómez")]
++    [InlineData("d'angelo", "D'Angelo")]
++    [InlineData("MCDONALD", "McDonald")]
++    [InlineData("ñandú NÚÑEZ", "Ñandú Núñez")]
++    public void Deja_la_primera_letra_de_cada_palabra_en_mayuscula(string escrito, string esperado)
++        => Assert.Equal(esperado, NombresPropios.Normalizar(escrito));
++
++    [Theory]
++    [InlineData(null)]
++    [InlineData("")]
++    [InlineData("   ")]
++    public void Un_valor_vacio_queda_vacio(string? escrito)
++        => Assert.Equal(string.Empty, NombresPropios.Normalizar(escrito));
++
++    [Fact]
++    public void Es_idempotente()
++    {
++        string una = NombresPropios.Normalizar("MARÍA DE LOS ÁNGELES MCDONALD-PÉREZ");
++        Assert.Equal(una, NombresPropios.Normalizar(una));
++    }
++
++    [Fact]
++    public void El_alta_de_un_jugador_normaliza_nombre_apellido_y_tutor()
++    {
++        var dto = JsonSerializer.Deserialize<JugadorCreateDto>(
++            "{\"nombre\":\"JUAN PABLO\",\"apellido\":\"GÓMEZ\",\"tutor\":{\"nombre\":\"MARTA\",\"apellido\":\"DE LA ROSA\"}}")!;
++
++        Assert.Equal("Juan Pablo", dto.Nombre);
++        Assert.Equal("Gómez", dto.Apellido);
++        Assert.Equal("Marta", dto.Tutor!.Nombre);
++        Assert.Equal("De la Rosa", dto.Tutor.Apellido);
++    }
++
++    [Fact]
++    public void La_edicion_de_un_jugador_normaliza()
++    {
++        var dto = JsonSerializer.Deserialize<JugadorUpdateDto>("{\"nombre\":\"ANA\",\"apellido\":\"LÓPEZ\"}")!;
++
++        Assert.Equal("Ana", dto.Nombre);
++        Assert.Equal("López", dto.Apellido);
++    }
++
++    [Fact]
++    public void El_alta_y_la_edicion_de_personal_normalizan()
++    {
++        var alta = JsonSerializer.Deserialize<StaffCreateDto>("{\"nombre\":\"LUIS\",\"apellido\":\"MCDONALD\"}")!;
++        var edicion = JsonSerializer.Deserialize<StaffUpdateDto>("{\"nombre\":\"LUIS\",\"apellido\":\"MCDONALD\"}")!;
++
++        Assert.Equal("Luis", alta.Nombre);
++        Assert.Equal("McDonald", alta.Apellido);
++        Assert.Equal("Luis", edicion.Nombre);
++        Assert.Equal("McDonald", edicion.Apellido);
++    }
++
++    [Fact]
++    public void El_tutor_que_se_guarda_aparte_normaliza()
++    {
++        var dto = JsonSerializer.Deserialize<GuardarTutorDto>("{\"nombre\":\"PEDRO\",\"apellido\":\"SOSA\"}")!;
++
++        Assert.Equal("Pedro", dto.Nombre);
++        Assert.Equal("Sosa", dto.Apellido);
++    }
++}

@@ -96,9 +96,17 @@ $yaAdaptado = (Select-String -Path (Join-Path $n 'DaoLibrary\AuthDao.cs') -Patte
 if ($yaAdaptado) { Write-Host "  El repo del Administrativo ya esta adaptado a la base unificada: se omite nuestro.patch." }
 else { Aplicar $n (Join-Path $raiz 'parches\nuestro.patch') }
 # El parche definitivo (todo lo de docs/hallazgos-otro-equipo.md) reemplaza al provisorio: se aplica uno solo sobre el main del Deportivo.
-$definitivo = Join-Path $raiz 'parches\ellos-definitivo.patch'
-if (Test-Path $definitivo) { Aplicar (Join-Path $Destino 'ellos\BackEnd') $definitivo }
-else { Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos-provisorio.patch') }
+# Si el repo del Deportivo ya trae los cambios (rama feat/base-unificada o el main despues de aceptar el PR), el parche no se aplica de nuevo.
+$ellosYaAdaptado = Test-Path (Join-Path $Destino 'ellos\BackEnd\INTEGRACION_ADMINISTRATIVO.md')
+if ($ellosYaAdaptado) { Write-Host "  El repo del Deportivo ya esta adaptado a la base unificada: se omite el parche del Deportivo." }
+else {
+    $definitivo = Join-Path $raiz 'parches\ellos-definitivo.patch'
+    if (Test-Path $definitivo) { Aplicar (Join-Path $Destino 'ellos\BackEnd') $definitivo }
+    else { Aplicar (Join-Path $Destino 'ellos\BackEnd') (Join-Path $raiz 'parches\ellos-provisorio.patch') }
+    # Regla de nombres y apellidos (primera letra de cada palabra en mayuscula); va aparte porque se sumo despues del parche definitivo.
+    $nombres = Join-Path $raiz 'parches\ellos-nombres-backend.patch'
+    if (Test-Path $nombres) { Aplicar (Join-Path $Destino 'ellos\BackEnd') $nombres }
+}
 
 # ---- 3. configuracion (clave JWT compartida, aleatoria por armado)
 Paso "Escribiendo la configuracion"

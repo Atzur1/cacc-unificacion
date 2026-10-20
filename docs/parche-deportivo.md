@@ -63,6 +63,10 @@ la inscripción al registrar el primer pago). Solo pueden llamarla el SuperAdmin
 dice "Ya registrado hoy" en lugar de "Registro exitoso" cuando la asistencia ya estaba, activar la cámara no bloquea el ingreso manual y una respuesta tardía no pisa
 una pantalla nueva. Un 404 sin mensaje del Administrativo (ruta inexistente, versión anterior) ya no se muestra como "el DNI no pertenece a un jugador".
 
+**Nombres y apellidos.** Se guardan con la primera letra de cada palabra en mayúscula ("JUAN CARLOS pérez" queda "Juan Carlos Pérez"), sin importar cómo se escriban; "de", "del", "la", "las", "los", "y" y "e" van en
+minúscula salvo al principio, y se respetan guiones, apóstrofos, "Mc" y acentos. La regla es la misma que usa el Administrativo (`EntityLibrary.NombresPropios`) y se aplica en los DTO de entrada del Deportivo (alta y edición de jugador, tutor y personal). Va en un parche
+aparte, `parches/ellos-nombres-backend.patch`, que `armar.ps1` aplica después del definitivo; quien ya aplicó el definitivo puede aplicar solo ese. Para los datos ya cargados está `database/mantenimiento/normalizar_nombres_personas.sql` en el repo del Administrativo.
+
 **Documentación dentro del repo del Deportivo.** `BackEnd/INTEGRACION_ADMINISTRATIVO.md`, `BackEnd/LOCAL_CONFIGURATION.md` y `appsettings.example.json` explican la base única,
 el login único, el contrato v1 y la configuración (`Jwt:*`, `AdministrativoApi:*`, `Cors:*`).
 
@@ -92,9 +96,9 @@ Administrativo está en `src/app/core/auth/portales.config.ts`; en el Administra
 
 ## Qué está probado y qué no
 
-- Pruebas del Deportivo: 77 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 69 en el FrontEnd (antes 46). Una prueba del FrontEnd
+- Pruebas del Deportivo: 95 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 69 en el FrontEnd (antes 46). Una prueba del FrontEnd
   (`admin-coordinador-legacy-routes`) ya fallaba antes del parche, por nombres de clases; no tiene relación.
-- `scripts/probar.ps1`: 102 verificaciones contra las dos APIs y la base real, sin pendientes.
+- `scripts/probar.ps1`: 104 verificaciones contra las dos APIs y la base real, sin pendientes.
 - Navegador real (`pruebas/e2e/e2e.js`, Chrome automatizado con los dos frontends y las dos APIs levantados): login único, Médica y DT entran directo al
   Deportivo, SuperAdmin pasa y vuelve a la elección de portales, "Personas" abre el alta, y el Deportivo sin sesión redirige al login del Administrativo.
   10 verificaciones, todas correctas. Se corre con `manual.ps1` levantado: `cd pruebas\e2e; npm install; node e2e.js`.

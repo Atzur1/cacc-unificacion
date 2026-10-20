@@ -100,7 +100,7 @@ git clone https://github.com/NejoCHZ/App-Club-Atletico-Camioneros.git</pre>
 <pre>.\scripts\iniciar.ps1
 .\scripts\probar.ps1
 .\scripts\detener.ps1</pre>
-<p><code>iniciar.ps1</code> levanta las dos APIs (<code>probar.ps1</code> no las levanta: las necesita corriendo). Después <code>probar.ps1</code> corre 102 verificaciones contra la base real y debe terminar con: <code>RESUMEN: 102 PASAN | 0 FALLAN | 0 GAP</code>. El detalle queda en <code>trabajo\resultado.txt</code>.
+<p><code>iniciar.ps1</code> levanta las dos APIs (<code>probar.ps1</code> no las levanta: las necesita corriendo). Después <code>probar.ps1</code> corre 104 verificaciones contra la base real y debe terminar con: <code>RESUMEN: 104 PASAN | 0 FALLAN | 0 GAP</code>. El detalle queda en <code>trabajo\resultado.txt</code>.
 Si usan una instancia <code>SQLEXPRESS</code>, también hay que pasarle el servidor a <code>probar.ps1</code>: <code>.\scripts\probar.ps1 -Servidor "localhost\SQLEXPRESS"</code>.</p>
 <div class="box warn"><b>Ojo:</b> <code>probar.ps1</code> deja datos de prueba en la base. Si después quieren probar a mano, vuelvan a correr el Paso 3 (<code>armar.ps1 … -Recrear</code>) para empezar de cero.</div>
 

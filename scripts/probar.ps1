@@ -178,6 +178,11 @@ Chk 'Cargos' 'la respuesta dice solo si se genero cada cargo, nunca montos' ((($
 $r = Call 'POST' "$A/api/integracion/v1/jugadores/$idV/cargos-alta" $TM; Chk 'Cargos' 'la Medica no puede pedir cargos de alta: 403' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'POST' "$A/api/integracion/v1/jugadores/999999/cargos-alta" $T; Chk 'Cargos' 'un jugador que no existe: 404 con mensaje (no confundible con una ruta inexistente)' ($r.s -eq 404 -and $r.b -match 'mensaje') "HTTP $($r.s) $($r.b)"
 $r = Call 'POST' "$A/api/integracion/v1/jugadores/$idV/cargos-alta" $null; Chk 'Cargos' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
+# --- Nombres y apellidos: los dos portales los guardan igual (primera letra de cada palabra en mayuscula), vengan como vengan
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000022'; nombre = 'LUCIA DE LOS ANGELES'; apellido = 'gomez'; fechaNacimiento = '2012-03-05'; genero = 'Femenino'; categoria = '3'; posicion = 'Defensor' }
+Chk 'Nombres' 'el Deportivo guarda "LUCIA DE LOS ANGELES" / "gomez" como "Lucia de los Angeles" / "Gomez"' ($r.s -eq 201 -and (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='41000022'") -eq 'Lucia de los Angeles/Gomez') (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='41000022'")
+$r = Call 'POST' "$A/api/players" $T @{ firstName = 'JUAN CARLOS'; lastName = 'mcdonald-PEREZ'; dni = '42000005'; birthDate = '2012-03-03'; gender = 'Masculino'; categoryId = 3 }
+Chk 'Nombres' 'el Administrativo guarda "JUAN CARLOS" / "mcdonald-PEREZ" como "Juan Carlos" / "McDonald-Perez"' ($r.s -eq 201 -and (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='42000005'") -eq 'Juan Carlos/McDonald-Perez') (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='42000005'")
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',

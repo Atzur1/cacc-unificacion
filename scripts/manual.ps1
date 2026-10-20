@@ -45,8 +45,13 @@ $feNuestro = Join-Path $RepoNuestro 'frontend-cacc'
 Write-Host '== Preparando el frontend del Deportivo (copia + parche)' -ForegroundColor Cyan
 robocopy (Join-Path $RepoEllos 'FrontEnd') $feEllos /MIR /XD node_modules .angular dist .git /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw 'Fallo la copia del FrontEnd.' }
-& (Join-Path $raiz 'parches\aplicar-parche.ps1') -Parche (Join-Path $raiz 'parches\ellos-definitivo-frontend.patch') -Carpeta $feEllos
-if ($LASTEXITCODE -ne 0) { throw 'No se pudo aplicar el parche del frontend.' }
+# Si el frontend del Deportivo ya trae el login unico (rama feat/base-unificada o el main despues de aceptar el PR), no se parchea de nuevo.
+$feYaAdaptado = @(Get-ChildItem (Join-Path $feEllos 'src') -Recurse -Filter '*.ts' -ErrorAction SilentlyContinue | Select-String -Pattern 'sso=' -List).Count -gt 0
+if ($feYaAdaptado) { Write-Host '  El frontend del Deportivo ya esta adaptado (login unico): se omite el parche.' }
+else {
+    & (Join-Path $raiz 'parches\aplicar-parche.ps1') -Parche (Join-Path $raiz 'parches\ellos-definitivo-frontend.patch') -Carpeta $feEllos
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo aplicar el parche del frontend.' }
+}
 if (-not (Test-Path (Join-Path $feEllos 'node_modules'))) {
     Write-Host '== npm ci del frontend del Deportivo (la primera vez tarda unos minutos)' -ForegroundColor Cyan
     Push-Location $feEllos; $ErrorActionPreference = 'Continue'; try { npm ci --no-audit --no-fund 2>&1 | Out-Host; if ($LASTEXITCODE -ne 0) { Remove-Item (Join-Path $feEllos 'node_modules') -Recurse -Force -ErrorAction SilentlyContinue; throw 'Fallo npm ci del Deportivo.' } } finally { $ErrorActionPreference = 'Stop'; Pop-Location }
