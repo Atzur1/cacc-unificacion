@@ -54,6 +54,18 @@ Deportivo: se quitó de `UserScopeService` y su token no trae permisos deportivo
 La respuesta lleva **solo el estado** de cada jugador: ni montos, ni cantidad de cuotas, ni meses adeudados. El QR del Deportivo pinta el semáforo con ese estado y su respuesta tampoco
 lleva datos financieros. La ruta anterior (`/api/estado-deuda`) sigue como alias hasta que todos migren.
 
+**Altas y cargos (inscripción y cuota del mes).** Después de grabar a un jugador, `POST api/jugadores` llama a `POST /api/integracion/v1/jugadores/{id}/cargos-alta` del
+Administrativo, que genera la inscripción de su género y la cuota del mes con las reglas de siempre (idempotente, sin devolver montos). **Si esa llamada falla el alta
+no se deshace**: la respuesta trae `cargosGenerados: false` y un aviso, y los cargos salen por los mecanismos de siempre (la cuota con la próxima generación mensual,
+la inscripción al registrar el primer pago). Solo pueden llamarla el SuperAdmin y el Administrador (Tesorero), y solo para altas de los últimos 7 días.
+
+**Formulario de alta y QR (hallazgos del reporte de pruebas).** El formulario de alta marca en línea cada campo obligatorio que falta (ya no usa `alert()`); el QR
+dice "Ya registrado hoy" en lugar de "Registro exitoso" cuando la asistencia ya estaba, activar la cámara no bloquea el ingreso manual y una respuesta tardía no pisa
+una pantalla nueva. Un 404 sin mensaje del Administrativo (ruta inexistente, versión anterior) ya no se muestra como "el DNI no pertenece a un jugador".
+
+**Documentación dentro del repo del Deportivo.** `BackEnd/INTEGRACION_ADMINISTRATIVO.md`, `BackEnd/LOCAL_CONFIGURATION.md` y `appsettings.example.json` explican la base única,
+el login único, el contrato v1 y la configuración (`Jwt:*`, `AdministrativoApi:*`, `Cors:*`).
+
 **QR y estado de cuota.** La deuda ya no se lee de `VISTA_ESTADO_DEUDA`: la informa `GET {AdministrativoApi:BaseUrl}/api/integracion/v1/estado-deuda/dni/{dni}` con
 el mismo token del usuario. Los listados piden el estado de todos los jugadores con una sola llamada (`POST …/lote`). El Deportivo conserva
 la decisión de acceso y el registro de la asistencia (idempotente por día).
@@ -80,9 +92,9 @@ Administrativo está en `src/app/core/auth/portales.config.ts`; en el Administra
 
 ## Qué está probado y qué no
 
-- Pruebas del Deportivo: 59 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 61 en el FrontEnd (antes 46). Una prueba del FrontEnd
+- Pruebas del Deportivo: 77 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 69 en el FrontEnd (antes 46). Una prueba del FrontEnd
   (`admin-coordinador-legacy-routes`) ya fallaba antes del parche, por nombres de clases; no tiene relación.
-- `scripts/probar.ps1`: 88 verificaciones contra las dos APIs y la base real, sin pendientes.
+- `scripts/probar.ps1`: 102 verificaciones contra las dos APIs y la base real, sin pendientes.
 - Navegador real (`pruebas/e2e/e2e.js`, Chrome automatizado con los dos frontends y las dos APIs levantados): login único, Médica y DT entran directo al
   Deportivo, SuperAdmin pasa y vuelve a la elección de portales, "Personas" abre el alta, y el Deportivo sin sesión redirige al login del Administrativo.
   10 verificaciones, todas correctas. Se corre con `manual.ps1` levantado: `cd pruebas\e2e; npm install; node e2e.js`.

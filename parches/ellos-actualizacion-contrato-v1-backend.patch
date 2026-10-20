@@ -1,228 +1,539 @@
-diff -ruN a/CACC.API/Controllers/AsistenciasController.cs b/CACC.API/Controllers/AsistenciasController.cs
---- a/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 23:27:42.097482400 -0300
-+++ b/CACC.API/Controllers/AsistenciasController.cs	2026-10-18 23:27:42.098479400 -0300
-@@ -61,9 +61,7 @@
-                     yaRegistrada = false,
-                     verificado = true,
-                     estado = estado.Estado,
--                    mensaje = MensajeDenegado(estado),
--                    deudaTotal = estado.DeudaTotal,
--                    cuotasVencidas = estado.CuotasVencidas
-+                    mensaje = MensajeDenegado(estado)
+diff -ruN a/CACC.API/Controllers/JugadoresController.cs b/CACC.API/Controllers/JugadoresController.cs
+--- a/CACC.API/Controllers/JugadoresController.cs	2026-10-20 17:23:16.320720500 -0300
++++ b/CACC.API/Controllers/JugadoresController.cs	2026-10-20 17:23:16.257846100 -0300
+@@ -261,13 +261,23 @@
+ 
+                 int nuevoId = await _jugadorDao.CrearAsync(jugadorAlta);
+ 
++                // La inscripción y la cuota del mes las genera el Portal Administrativo (contrato v1), con sus reglas. El alta ya
++                // quedó hecha: si esa llamada falla no se deshace ni se rechaza; la cuota sale con la próxima generación mensual
++                // y la inscripción al registrar el primer pago.
++                var cargos = await _estadoDeuda.GenerarCargosDeAltaAsync(nuevoId, HttpContext.RequestAborted);
++                bool cargosGenerados = cargos.Estado == EstadoCargosAlta.Generados;
++
+                 return StatusCode(201, new
+                 {
+                     message = "Jugador creado con éxito.",
+                     idJugador = nuevoId,
+                     dni = dto.Dni,
+                     nombre = dto.Nombre,
+-                    apellido = dto.Apellido
++                    apellido = dto.Apellido,
++                    cargosGenerados,
++                    avisoCargos = cargosGenerados
++                        ? null
++                        : "El jugador se guardó, pero el Portal Administrativo todavía no generó su inscripción y su cuota. La cuota aparece en la próxima generación mensual y la inscripción al registrar el primer pago."
                  });
              }
- 
-@@ -73,11 +71,11 @@
-                 return UnprocessableEntity(new { message = resultado.Error ?? "No se pudo identificar un jugador inequívoco." });
-             }
- 
--            string mensaje = resultado.YaRegistrada ? "La asistencia ya estaba registrada para hoy." : estado.CuotasVencidas switch
--            {
--                0 => "Asistencia registrada. Acceso permitido.",
--                _ => "Asistencia registrada. El jugador posee un mes de deuda."
--            };
-+            string mensaje = resultado.YaRegistrada
-+                ? "La asistencia ya estaba registrada para hoy."
-+                : estado.Estado == "solo_entrenamientos"
-+                    ? "Asistencia registrada. El jugador posee un mes de deuda."
-+                    : "Asistencia registrada. Acceso permitido.";
-             return Ok(new
-             {
-                 accesoPermitido = true,
-@@ -85,9 +83,7 @@
-                 yaRegistrada = resultado.YaRegistrada,
-                 verificado = true,
-                 estado = estado.Estado,
--                mensaje,
--                deudaTotal = estado.DeudaTotal,
--                cuotasVencidas = estado.CuotasVencidas
-+                mensaje
-             });
-         }
- 
-@@ -117,14 +113,12 @@
-                 yaRegistrada = resultado.YaRegistrada,
-                 verificado = false,
-                 estado = "sin_verificar",
--                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar.",
--                deudaTotal = 0m,
--                cuotasVencidas = 0
-+                mensaje = "No se pudo verificar la deuda (el Portal Administrativo no responde). Ingreso permitido y marcado para revisar."
-             });
-         }
- 
-         private static string MensajeDenegado(EstadoDeudaAdministrativo estado) => estado.Estado == "baja"
-             ? "Acceso denegado. El jugador está dado de baja y la asistencia no fue registrada."
--            : $"Acceso denegado. El jugador posee {estado.CuotasVencidas} cuotas vencidas y la asistencia no fue registrada.";
-+            : "Acceso denegado. El jugador está inhabilitado por deuda y la asistencia no fue registrada.";
-     }
- }
+             catch (SqlException ex) when (ex.Number == 2627 || ex.Number == 2601)
 diff -ruN a/CACC.API/Services/EstadoDeudaClient.cs b/CACC.API/Services/EstadoDeudaClient.cs
---- a/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 23:27:41.721870900 -0300
-+++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-18 23:27:41.722876900 -0300
-@@ -70,7 +70,7 @@
+--- a/CACC.API/Services/EstadoDeudaClient.cs	2026-10-20 17:23:16.913565000 -0300
++++ b/CACC.API/Services/EstadoDeudaClient.cs	2026-10-20 17:23:16.859534700 -0300
+@@ -43,6 +43,19 @@
  
-         public async Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default)
-         {
--            using var pedido = NuevoPedido(HttpMethod.Get, $"api/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
-+            using var pedido = NuevoPedido(HttpMethod.Get, $"api/integracion/v1/estado-deuda/dni/{Uri.EscapeDataString(dni)}");
-             try
-             {
-                 using var respuesta = await _http.SendAsync(pedido, ct);
-@@ -113,7 +113,7 @@
-                 for (int i = 0; i < pendientes.Count; i += MaximoPorLote)
-                 {
-                     var tanda = pendientes.Skip(i).Take(MaximoPorLote).ToList();
--                    using var pedido = NuevoPedido(HttpMethod.Post, "api/estado-deuda/lote");
-+                    using var pedido = NuevoPedido(HttpMethod.Post, "api/integracion/v1/estado-deuda/lote");
-                     pedido.Content = new StringContent(JsonSerializer.Serialize(new { dnis = tanda }, Json), Encoding.UTF8, "application/json");
-                     using var respuesta = await _http.SendAsync(pedido, ct);
-                     if (!respuesta.IsSuccessStatusCode)
-diff -ruN a/CACC.Entities/EstadoDeudaAdministrativo.cs b/CACC.Entities/EstadoDeudaAdministrativo.cs
---- a/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 23:27:41.445981000 -0300
-+++ b/CACC.Entities/EstadoDeudaAdministrativo.cs	2026-10-18 23:27:41.446982300 -0300
-@@ -1,7 +1,8 @@
- namespace CACC.Entities
- {
--    // Estado de deuda de un jugador tal como lo informa el Portal Administrativo (api/estado-deuda). Ese portal es la
--    // única fuente de verdad de la deuda: acá no se calcula nada.
-+    // Estado de habilitación de un jugador tal como lo informa el Portal Administrativo (api/integracion/v1/estado-deuda).
-+    // Ese portal es la única fuente de verdad de la deuda: acá no se calcula nada y NO se recibe ningún monto ni cantidad de
-+    // cuotas (contrato v1: solo el estado).
-     public class EstadoDeudaAdministrativo
-     {
-         public string Dni { get; set; } = string.Empty;
-@@ -10,9 +11,6 @@
-         // "habilitado", "solo_entrenamientos", "inhabilitado" o "baja".
-         public string Estado { get; set; } = string.Empty;
-         public bool AccesoPermitido { get; set; }
--        public int CuotasVencidas { get; set; }
--        public decimal DeudaTotal { get; set; }
--        public bool EnTermino { get; set; }
-         public string? FechaBaja { get; set; }
-     }
- }
-diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
---- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 23:27:42.466148600 -0300
-+++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-18 23:27:42.467152200 -0300
-@@ -12,8 +12,8 @@
- // El QR decide con la deuda que informa el Portal Administrativo y registra la asistencia en la base del club.
- public class AsistenciasControllerTests
- {
--    private static EstadoDeudaAdministrativo Estado(string estado, int cuotas, bool acceso, decimal deuda = 0) =>
--        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso, CuotasVencidas = cuotas, DeudaTotal = deuda };
-+    private static EstadoDeudaAdministrativo Estado(string estado, bool acceso) =>
-+        new() { Dni = "40111222", IdJugador = 7, Estado = estado, AccesoPermitido = acceso };
+     public sealed record ConsultaEstadoDeuda(ResultadoConsulta Resultado, EstadoDeudaAdministrativo? Estado = null, int CodigoHttp = 0);
  
-     private static AsistenciasController Controlador(FakeDao dao, FakeDeuda deuda, string siNoResponde = "Denegar") =>
-         new(dao, deuda, Options.Create(new AdministrativoApiOptions { SiNoResponde = siNoResponde }));
-@@ -28,12 +28,12 @@
-     private static readonly AsistenciaRequestDto Pedido = new() { Dni = " 40111222 " };
- 
-     [Theory]
--    [InlineData("habilitado", 0, "Asistencia registrada. Acceso permitido.")]
--    [InlineData("solo_entrenamientos", 1, "Asistencia registrada. El jugador posee un mes de deuda.")]
--    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, int cuotas, string mensaje)
-+    [InlineData("habilitado", "Asistencia registrada. Acceso permitido.")]
-+    [InlineData("solo_entrenamientos", "Asistencia registrada. El jugador posee un mes de deuda.")]
-+    public async Task UnJugadorConAcceso_QuedaRegistradoComoPermitido(string estado, string mensaje)
-     {
-         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
--        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, true, cuotas * 1000m)));
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, true)));
- 
-         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out var codigo);
- 
-@@ -43,7 +43,6 @@
-         Assert.True(cuerpo.GetProperty("verificado").GetBoolean());
-         Assert.Equal(estado, cuerpo.GetProperty("estado").GetString());
-         Assert.Equal(mensaje, cuerpo.GetProperty("mensaje").GetString());
--        Assert.Equal(cuotas, cuerpo.GetProperty("cuotasVencidas").GetInt32());
-         Assert.Equal(1, dao.Llamadas);
-         Assert.Equal(AsistenciaDao.Permitido, dao.UltimoEstado);
-         Assert.Equal("40111222", dao.UltimoDni);
-@@ -51,13 +50,12 @@
-     }
- 
-     [Theory]
--    [InlineData("inhabilitado", 2)]
--    [InlineData("inhabilitado", 5)]
--    [InlineData("baja", 0)]
--    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado, int cuotas)
-+    [InlineData("inhabilitado")]
-+    [InlineData("baja")]
-+    public async Task UnJugadorSinAcceso_NoSeRegistra(string estado)
-     {
-         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true });
--        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, cuotas, false, 5000)));
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, false)));
- 
-         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
- 
-@@ -68,11 +66,28 @@
-         Assert.StartsWith("Acceso denegado", cuerpo.GetProperty("mensaje").GetString());
-     }
- 
-+    // Contrato v1 (HU-028): el Deportivo no recibe ni muestra montos ni cantidad de cuotas, en ninguna respuesta del QR.
-+    [Theory]
-+    [InlineData("habilitado", true)]
-+    [InlineData("solo_entrenamientos", true)]
-+    [InlineData("inhabilitado", false)]
-+    [InlineData("baja", false)]
-+    public async Task LaRespuestaDelQrNuncaLlevaDatosFinancieros(string estado, bool acceso)
++    public enum EstadoCargosAlta
 +    {
-+        var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true });
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado(estado, acceso)));
-+
-+        var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
-+
-+        var nombres = cuerpo.EnumerateObject().Select(p => p.Name.ToLowerInvariant()).ToArray();
-+        Assert.DoesNotContain(nombres, n => n.Contains("deuda") || n.Contains("cuota") || n.Contains("monto"));
++        // El Administrativo respondió bien (aunque no haya generado nada nuevo: es idempotente).
++        Generados,
++        // El Administrativo respondió que no corresponde (sin permiso, jugador inexistente, dado de baja, alta no reciente).
++        Rechazado,
++        // No respondió, devolvió un error o la ruta no existe en esa versión.
++        NoResponde
 +    }
 +
-     [Fact]
-     public async Task UnSegundoEscaneoDelMismoDia_SeInformaSinDuplicar()
++    // Qué pasó al pedirle los cargos de alta. Inscripcion / Cuota dicen si se generaron en esa llamada; nunca hay montos.
++    public sealed record ResultadoCargosAlta(EstadoCargosAlta Estado, bool Inscripcion = false, bool Cuota = false, string? Motivo = null);
++
+     public interface IEstadoDeudaClient
      {
-         var dao = new FakeDao(new ResultadoIngreso { PersonaEncontrada = true, AccesoPermitido = true, AsistenciaRegistrada = true, YaRegistrada = true });
--        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", 0, true)));
-+        var deuda = new FakeDeuda(new ConsultaEstadoDeuda(ResultadoConsulta.Ok, Estado("habilitado", true)));
- 
-         var cuerpo = Cuerpo(await Controlador(dao, deuda).VerificarYRegistrar(Pedido), out _);
- 
-@@ -126,6 +141,7 @@
-         Assert.True(cuerpo.GetProperty("accesoPermitido").GetBoolean());
-         Assert.False(cuerpo.GetProperty("verificado").GetBoolean());
-         Assert.Equal("sin_verificar", cuerpo.GetProperty("estado").GetString());
-+        Assert.False(cuerpo.TryGetProperty("deudaTotal", out _));
-         Assert.Equal(AsistenciaDao.SinVerificar, dao.UltimoEstado);
-         Assert.Contains("no respondió", dao.UltimaObservacion);
+         Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default);
+@@ -50,6 +63,10 @@
+         // El estado de varios jugadores por DNI (para los listados). Devuelve null si el Portal Administrativo no responde;
+         // los DNI que no son de jugadores simplemente no figuran en el resultado.
+         Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default);
++
++        // Pide al Administrativo que genere la inscripción y la cuota del mes de un jugador recién dado de alta (contrato v1).
++        // No lanza: si no se pudo, el alta ya hecha no se toca y el resultado dice qué pasó.
++        Task<ResultadoCargosAlta> GenerarCargosDeAltaAsync(int idJugador, CancellationToken ct = default);
      }
+ 
+     public sealed class EstadoDeudaClient : IEstadoDeudaClient
+@@ -84,7 +101,15 @@
+                     case HttpStatusCode.BadRequest:
+                         return new ConsultaEstadoDeuda(ResultadoConsulta.DniInvalido, CodigoHttp: 400);
+                     case HttpStatusCode.NotFound:
+-                        return new ConsultaEstadoDeuda(ResultadoConsulta.NoEsJugador, CodigoHttp: 404);
++                        // El 404 de "no es un jugador" trae un mensaje en el cuerpo. Uno vacío es una ruta que no existe (por
++                        // ejemplo, un Portal Administrativo de una versión anterior sin la API v1): es un problema de
++                        // configuración, no un DNI desconocido, y no debe mostrarse como tal.
++                        if (await TieneMensajeAsync(respuesta, ct))
++                        {
++                            return new ConsultaEstadoDeuda(ResultadoConsulta.NoEsJugador, CodigoHttp: 404);
++                        }
++                        _logger.LogError("El Portal Administrativo respondió 404 sin mensaje: la ruta {Ruta} no existe en esa versión de la API. Revisá AdministrativoApi:BaseUrl y la versión del Administrativo.", pedido.RequestUri);
++                        return new ConsultaEstadoDeuda(ResultadoConsulta.NoResponde, CodigoHttp: 404);
+                     case HttpStatusCode.Conflict:
+                         return new ConsultaEstadoDeuda(ResultadoConsulta.Ambiguo, CodigoHttp: 409);
+                     case HttpStatusCode.Unauthorized:
+@@ -135,6 +160,65 @@
+             }
+         }
+ 
++        public async Task<ResultadoCargosAlta> GenerarCargosDeAltaAsync(int idJugador, CancellationToken ct = default)
++        {
++            using var pedido = NuevoPedido(HttpMethod.Post, $"api/integracion/v1/jugadores/{idJugador}/cargos-alta");
++            try
++            {
++                using var respuesta = await _http.SendAsync(pedido, ct);
++                if (respuesta.IsSuccessStatusCode)
++                {
++                    var cargos = await respuesta.Content.ReadFromJsonAsync<CargosAltaRespuesta>(Json, ct);
++                    return cargos is null
++                        ? new ResultadoCargosAlta(EstadoCargosAlta.NoResponde)
++                        : new ResultadoCargosAlta(EstadoCargosAlta.Generados, cargos.InscripcionGenerada, cargos.CuotaGenerada);
++                }
++
++                string? mensaje = await LeerMensajeAsync(respuesta, ct);
++                int codigo = (int)respuesta.StatusCode;
++                // 4xx con mensaje: el Administrativo entendió el pedido y dijo que no corresponde. Un 404 vacío es una ruta que no existe.
++                if (codigo is >= 400 and < 500 && mensaje is not null)
++                {
++                    _logger.LogWarning("El Portal Administrativo rechazó generar los cargos del jugador {IdJugador}: {Codigo} {Motivo}", idJugador, codigo, mensaje);
++                    return new ResultadoCargosAlta(EstadoCargosAlta.Rechazado, Motivo: mensaje);
++                }
++                if (codigo is 401 or 403)
++                {
++                    _logger.LogWarning("El Portal Administrativo no aceptó la sesión para generar los cargos del jugador {IdJugador}: {Codigo}", idJugador, codigo);
++                    return new ResultadoCargosAlta(EstadoCargosAlta.Rechazado, Motivo: "Sin permiso en el Portal Administrativo.");
++                }
++
++                _logger.LogWarning("El Portal Administrativo respondió {Codigo} al generar los cargos del jugador {IdJugador}.", codigo, idJugador);
++                return new ResultadoCargosAlta(EstadoCargosAlta.NoResponde);
++            }
++            catch (Exception ex) when (EsFalloDeConexion(ex, ct))
++            {
++                _logger.LogWarning(ex, "No se pudo pedir al Portal Administrativo los cargos del jugador {IdJugador}.", idJugador);
++                return new ResultadoCargosAlta(EstadoCargosAlta.NoResponde);
++            }
++        }
++
++        private static async Task<bool> TieneMensajeAsync(HttpResponseMessage respuesta, CancellationToken ct) =>
++            await LeerMensajeAsync(respuesta, ct) is not null;
++
++        // El cuerpo de error del Administrativo es { exito, mensaje }. Sin ese mensaje (cuerpo vacío o de otra forma) no es una
++        // respuesta de la API sino, por ejemplo, un 404 de ruta inexistente.
++        private static async Task<string?> LeerMensajeAsync(HttpResponseMessage respuesta, CancellationToken ct)
++        {
++            try
++            {
++                await using var cuerpo = await respuesta.Content.ReadAsStreamAsync(ct);
++                using var documento = await JsonDocument.ParseAsync(cuerpo, cancellationToken: ct);
++                return documento.RootElement.ValueKind == JsonValueKind.Object && documento.RootElement.TryGetProperty("mensaje", out var m)
++                    ? m.GetString()
++                    : null;
++            }
++            catch (JsonException)
++            {
++                return null;
++            }
++        }
++
+         // Reenvía el token del usuario: es el mismo en los dos portales.
+         private HttpRequestMessage NuevoPedido(HttpMethod metodo, string ruta)
+         {
+@@ -155,6 +239,12 @@
+         {
+             public List<EstadoDeudaAdministrativo>? Items { get; set; }
+         }
++
++        private sealed class CargosAltaRespuesta
++        {
++            public bool InscripcionGenerada { get; set; }
++            public bool CuotaGenerada { get; set; }
++        }
+     }
+ 
+     // Texto que muestran los listados del Deportivo para el estado de cuota de cada jugador.
+diff -ruN a/CACC.API/appsettings.example.json b/CACC.API/appsettings.example.json
+--- a/CACC.API/appsettings.example.json	2026-10-20 17:23:16.961719100 -0300
++++ b/CACC.API/appsettings.example.json	2026-10-20 17:23:16.914569100 -0300
+@@ -7,12 +7,15 @@
+   },
+   "AllowedHosts": "*",
+   "ConnectionStrings": {
+-    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ClubCamioneros;Trusted_Connection=True;TrustServerCertificate=True;"
++    "DefaultConnection": "Server=localhost;Database=ClubCamionerosUnificadaV2;Trusted_Connection=True;TrustServerCertificate=True;"
+   },
+-  "JwtSettings": {
+-    "Issuer": "CACC_API",
+-    "Audience": "CACC_Angular",
+-    "Key": "CHANGE_ME_WITH_A_PRIVATE_RANDOM_KEY_AT_LEAST_32_CHARACTERS",
+-    "ExpirationMinutes": 720
++  "Jwt": {
++    "Issuer": "SAME_AS_THE_ADMINISTRATIVO",
++    "Audience": "SAME_AS_THE_ADMINISTRATIVO",
++    "Key": "CHANGE_ME_THE_SAME_PRIVATE_KEY_AS_THE_ADMINISTRATIVO_AT_LEAST_32_CHARACTERS"
++  },
++  "AdministrativoApi": {
++    "BaseUrl": "http://localhost:5118",
++    "TimeoutSegundos": 3
+   }
+ }
+diff -ruN a/CACC.Tests/AsistenciasControllerTests.cs b/CACC.Tests/AsistenciasControllerTests.cs
+--- a/CACC.Tests/AsistenciasControllerTests.cs	2026-10-20 17:23:17.642987700 -0300
++++ b/CACC.Tests/AsistenciasControllerTests.cs	2026-10-20 17:23:17.593902800 -0300
+@@ -198,5 +198,8 @@
+ 
+         public Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default) =>
+             Task.FromResult<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?>(null);
++
++        public Task<ResultadoCargosAlta> GenerarCargosDeAltaAsync(int idJugador, CancellationToken ct = default) =>
++            Task.FromResult(new ResultadoCargosAlta(EstadoCargosAlta.NoResponde));
+     }
+ }
 diff -ruN a/CACC.Tests/EstadoDeudaClientTests.cs b/CACC.Tests/EstadoDeudaClientTests.cs
---- a/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 23:27:42.738969800 -0300
-+++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-18 23:27:42.739970100 -0300
-@@ -9,7 +9,7 @@
- 
- public class EstadoDeudaClientTests
- {
--    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"cuotasVencidas\":0,\"deudaTotal\":0,\"enTermino\":true,\"fechaBaja\":null}";
-+    private const string Habilitado = "{\"dni\":\"40111222\",\"idJugador\":7,\"estado\":\"habilitado\",\"accesoPermitido\":true,\"fechaBaja\":null}";
- 
-     private static EstadoDeudaClient Cliente(Func<HttpRequestMessage, HttpResponseMessage> responder, out Manejador manejador, string? token = "token-del-usuario")
-     {
-@@ -37,7 +37,7 @@
-         Assert.True(consulta.Estado.AccesoPermitido);
-         Assert.Equal(7, consulta.Estado.IdJugador);
-         Assert.Equal("Bearer token-del-usuario", manejador.Pedidos[0].Headers.Authorization!.ToString());
--        Assert.Equal("/api/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
-+        Assert.Equal("/api/integracion/v1/estado-deuda/dni/40111222", manejador.Pedidos[0].RequestUri!.AbsolutePath);
-     }
+--- a/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-20 17:23:18.339512900 -0300
++++ b/CACC.Tests/EstadoDeudaClientTests.cs	2026-10-20 17:23:18.084389600 -0300
+@@ -42,7 +42,6 @@
  
      [Theory]
-@@ -95,6 +95,7 @@
-         Assert.Single(lote!);
-         Assert.Equal("habilitado", lote["40111222"].Estado);
-         Assert.Single(manejador.Pedidos);
-+        Assert.Equal("/api/integracion/v1/estado-deuda/lote", manejador.Pedidos[0].RequestUri!.AbsolutePath);
-         Assert.Contains("\"dnis\":[\"40111222\",\"1\"]", manejador.Cuerpos[0]);
+     [InlineData(HttpStatusCode.BadRequest, ResultadoConsulta.DniInvalido)]
+-    [InlineData(HttpStatusCode.NotFound, ResultadoConsulta.NoEsJugador)]
+     [InlineData(HttpStatusCode.Conflict, ResultadoConsulta.Ambiguo)]
+     [InlineData(HttpStatusCode.Unauthorized, ResultadoConsulta.SinPermiso)]
+     [InlineData(HttpStatusCode.Forbidden, ResultadoConsulta.SinPermiso)]
+@@ -55,6 +54,85 @@
      }
  
+     [Fact]
++    public async Task UnDniQueNoEsDeUnJugador_LlegaComo404ConMensaje()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.NotFound, "{\"exito\":false,\"mensaje\":\"El DNI no pertenece a un jugador.\"}"), out _);
++        Assert.Equal(ResultadoConsulta.NoEsJugador, (await cliente.PorDniAsync("40111222")).Resultado);
++    }
++
++    // Una ruta que no existe (Administrativo de una versión anterior) también es 404, pero sin mensaje: no es "no es un jugador".
++    [Theory]
++    [InlineData("")]
++    [InlineData("{}")]
++    [InlineData("<html>Not Found</html>")]
++    public async Task UnDosCuatrocientosCuatroSinMensaje_EsUnProblemaDeConfiguracion(string cuerpo)
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.NotFound, cuerpo), out _);
++        var consulta = await cliente.PorDniAsync("40111222");
++        Assert.Equal(ResultadoConsulta.NoResponde, consulta.Resultado);
++        Assert.Equal(404, consulta.CodigoHttp);
++    }
++
++    // ===== Cargos de alta (opción A): el Deportivo avisa al Administrativo después de dar de alta a un jugador =====
++
++    [Fact]
++    public async Task CargosDeAlta_PideLosCargosConElTokenDelUsuario_YLeeQueSeGeneraron()
++    {
++        var cliente = Cliente(_ => Json(HttpStatusCode.OK, "{\"idJugador\":42,\"inscripcionGenerada\":true,\"cuotaGenerada\":false}"), out var manejador);
++
++        var resultado = await cliente.GenerarCargosDeAltaAsync(42);
++
++        Assert.Equal(EstadoCargosAlta.Generados, resultado.Estado);
++        Assert.True(resultado.Inscripcion);
++        Assert.False(resultado.Cuota);
++        Assert.Equal(HttpMethod.Post, manejador.Pedidos[0].Method);
++        Assert.Equal("/api/integracion/v1/jugadores/42/cargos-alta", manejador.Pedidos[0].RequestUri!.AbsolutePath);
++        Assert.Equal("Bearer token-del-usuario", manejador.Pedidos[0].Headers.Authorization!.ToString());
++    }
++
++    [Theory]
++    [InlineData(HttpStatusCode.NotFound, "{\"exito\":false,\"mensaje\":\"No existe el jugador 42.\"}", "No existe el jugador 42.")]
++    [InlineData(HttpStatusCode.UnprocessableEntity, "{\"exito\":false,\"mensaje\":\"El jugador está dado de baja.\"}", "El jugador está dado de baja.")]
++    [InlineData(HttpStatusCode.BadRequest, "{\"exito\":false,\"mensaje\":\"Indicá un jugador válido.\"}", "Indicá un jugador válido.")]
++    public async Task CargosDeAlta_UnaRespuestaQueDiceQueNoCorresponde_EsRechazada(HttpStatusCode codigo, string cuerpo, string motivo)
++    {
++        var resultado = await Cliente(_ => Json(codigo, cuerpo), out _).GenerarCargosDeAltaAsync(42);
++
++        Assert.Equal(EstadoCargosAlta.Rechazado, resultado.Estado);
++        Assert.Equal(motivo, resultado.Motivo);
++    }
++
++    [Theory]
++    [InlineData(HttpStatusCode.Unauthorized)]
++    [InlineData(HttpStatusCode.Forbidden)]
++    public async Task CargosDeAlta_SinPermisoEnElAdministrativo_EsRechazada(HttpStatusCode codigo)
++    {
++        var resultado = await Cliente(_ => Json(codigo, ""), out _).GenerarCargosDeAltaAsync(42);
++
++        Assert.Equal(EstadoCargosAlta.Rechazado, resultado.Estado);
++    }
++
++    [Theory]
++    [InlineData(HttpStatusCode.NotFound, "")]
++    [InlineData(HttpStatusCode.NotFound, "{}")]
++    [InlineData(HttpStatusCode.InternalServerError, "{}")]
++    [InlineData(HttpStatusCode.BadGateway, "no es json")]
++    public async Task CargosDeAlta_UnErrorDelServidorOUnaRutaInexistente_CuentaComoNoResponde(HttpStatusCode codigo, string cuerpo)
++    {
++        var resultado = await Cliente(_ => Json(codigo, cuerpo), out _).GenerarCargosDeAltaAsync(42);
++
++        Assert.Equal(EstadoCargosAlta.NoResponde, resultado.Estado);
++    }
++
++    [Fact]
++    public async Task CargosDeAlta_SiLaConexionFalla_NoLanzaYCuentaComoNoResponde()
++    {
++        var cliente = Cliente(_ => throw new HttpRequestException("sin conexión"), out _);
++
++        Assert.Equal(EstadoCargosAlta.NoResponde, (await cliente.GenerarCargosDeAltaAsync(42)).Estado);
++    }
++
++    [Fact]
+     public async Task SiLaConexionFalla_ContaComoNoResponde()
+     {
+         var cliente = Cliente(_ => throw new HttpRequestException("sin conexión"), out _);
+diff -ruN a/CACC.Tests/JugadoresControllerAltaTests.cs b/CACC.Tests/JugadoresControllerAltaTests.cs
+--- a/CACC.Tests/JugadoresControllerAltaTests.cs	1969-12-31 21:00:00.000000000 -0300
++++ b/CACC.Tests/JugadoresControllerAltaTests.cs	2026-10-20 17:23:18.340588500 -0300
+@@ -0,0 +1,126 @@
++using CACC.API.Controllers;
++using CACC.API.DTOs;
++using CACC.API.Security;
++using CACC.API.Services;
++using CACC.DAO;
++using CACC.Entities;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++using System.Text.Json;
++using Xunit;
++namespace CACC.Tests;
++
++// Al dar de alta un jugador, el Deportivo avisa al Administrativo para que genere su inscripción y su cuota del mes.
++// El alta ya está hecha en la base: si el aviso falla, no se deshace ni se rechaza.
++public class JugadoresControllerAltaTests
++{
++    private static JugadorCreateDto Dto() => new()
++    {
++        Nombre = "Juan", Apellido = "Perez", Dni = "41000001", Genero = "Masculino", Categoria = "3",
++        FechaNacimiento = new DateTime(2010, 5, 5)
++    };
++
++    private static (JugadoresController controlador, DaoFalso dao, AdministrativoFalso admin) Crear(ResultadoCargosAlta resultado)
++    {
++        var dao = new DaoFalso();
++        var admin = new AdministrativoFalso(resultado);
++        var controlador = new JugadoresController(dao, new AccesoFalso(), admin)
++        {
++            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
++        };
++        return (controlador, dao, admin);
++    }
++
++    private static JsonElement Cuerpo(IActionResult resultado, out int? codigo)
++    {
++        var objeto = Assert.IsAssignableFrom<ObjectResult>(resultado);
++        codigo = objeto.StatusCode;
++        return JsonDocument.Parse(JsonSerializer.Serialize(objeto.Value)).RootElement.Clone();
++    }
++
++    [Fact]
++    public async Task UnAltaConCargosGenerados_LoDiceYPideLosCargosDelJugadorCreado()
++    {
++        var (controlador, dao, admin) = Crear(new ResultadoCargosAlta(EstadoCargosAlta.Generados, Inscripcion: true, Cuota: true));
++
++        var cuerpo = Cuerpo(await controlador.CrearJugador(Dto()), out var codigo);
++
++        Assert.Equal(201, codigo);
++        Assert.Equal(1, dao.Altas);
++        Assert.Equal(new[] { 42 }, admin.JugadoresConsultados);
++        Assert.Equal(42, cuerpo.GetProperty("idJugador").GetInt32());
++        Assert.True(cuerpo.GetProperty("cargosGenerados").GetBoolean());
++        Assert.Equal(JsonValueKind.Null, cuerpo.GetProperty("avisoCargos").ValueKind);
++    }
++
++    [Theory]
++    [InlineData(EstadoCargosAlta.NoResponde)]
++    [InlineData(EstadoCargosAlta.Rechazado)]
++    public async Task SiElAdministrativoNoGeneraLosCargos_ElAltaIgualQuedaHechaYSeAvisa(EstadoCargosAlta estado)
++    {
++        var (controlador, dao, _) = Crear(new ResultadoCargosAlta(estado, Motivo: "x"));
++
++        var cuerpo = Cuerpo(await controlador.CrearJugador(Dto()), out var codigo);
++
++        Assert.Equal(201, codigo);
++        Assert.Equal(1, dao.Altas);
++        Assert.False(cuerpo.GetProperty("cargosGenerados").GetBoolean());
++        Assert.Contains("primer pago", cuerpo.GetProperty("avisoCargos").GetString());
++    }
++
++    [Fact]
++    public async Task UnAltaIncompleta_NoLlegaAlAdministrativoNiToca_LaBase()
++    {
++        var (controlador, dao, admin) = Crear(new ResultadoCargosAlta(EstadoCargosAlta.Generados));
++        var dto = Dto();
++        dto.Genero = "";
++
++        Assert.IsType<BadRequestObjectResult>(await controlador.CrearJugador(dto));
++        Assert.Equal(0, dao.Altas);
++        Assert.Empty(admin.JugadoresConsultados);
++    }
++
++    private sealed class AdministrativoFalso(ResultadoCargosAlta resultado) : IEstadoDeudaClient
++    {
++        public List<int> JugadoresConsultados { get; } = new();
++
++        public Task<ResultadoCargosAlta> GenerarCargosDeAltaAsync(int idJugador, CancellationToken ct = default)
++        {
++            JugadoresConsultados.Add(idJugador);
++            return Task.FromResult(resultado);
++        }
++
++        public Task<ConsultaEstadoDeuda> PorDniAsync(string dni, CancellationToken ct = default) => throw new NotSupportedException();
++
++        public Task<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?> PorLoteAsync(IEnumerable<string> dnis, CancellationToken ct = default) =>
++            Task.FromResult<IReadOnlyDictionary<string, EstadoDeudaAdministrativo>?>(null);
++    }
++
++    private sealed class DaoFalso : IJugadorDao
++    {
++        public int Altas { get; private set; }
++
++        public Task<int> CrearAsync(JugadorAlta dto)
++        {
++            Altas++;
++            return Task.FromResult(42);
++        }
++
++        public Task<IEnumerable<JugadorDetalle>> ObtenerTodosAsync() => throw new NotSupportedException();
++        public Task<JugadorDetalle?> ObtenerPorIdAsync(int id) => throw new NotSupportedException();
++        public Task<IEnumerable<JugadorDetalle>> ObtenerPorCategoriaAsync(int idCategoria) => throw new NotSupportedException();
++        public Task<bool> ActualizarPerfilAsync(int id, JugadorDetalle jugador) => throw new NotSupportedException();
++        public Task<bool> EliminarAsync(int idJugador) => throw new NotSupportedException();
++        public Task<TutorDetalle?> BuscarTutorPorDniAsync(string dni) => throw new NotSupportedException();
++        public Task<bool> GuardarTutorAsync(int idJugador, string dni, string nombre, string apellido, string parentesco, string telefono, string? email) => throw new NotSupportedException();
++    }
++
++    private sealed class AccesoFalso : ICurrentUserAccess
++    {
++        public bool IsAdmin => true;
++        public bool IsDirectorTecnico => false;
++        public IReadOnlySet<int> CategoriaIds => new HashSet<int>();
++        public bool PuedeAccederCategoria(int categoriaId) => true;
++        public bool PuedeAccederAlgunaCategoria(IEnumerable<int> categoriaIds) => true;
++    }
++}
+diff -ruN a/INTEGRACION_ADMINISTRATIVO.md b/INTEGRACION_ADMINISTRATIVO.md
+--- a/INTEGRACION_ADMINISTRATIVO.md	1969-12-31 21:00:00.000000000 -0300
++++ b/INTEGRACION_ADMINISTRATIVO.md	2026-10-20 17:23:18.839079500 -0300
+@@ -0,0 +1,63 @@
++# Integración con el Portal Administrativo
++
++El Portal Deportivo y el Portal Administrativo del club funcionan como **un solo sistema**: una base de datos, un inicio de sesión y una única elección de portales. Este documento explica cómo encaja el Deportivo.
++
++## Qué es de quién
++
++| Tema | Dueño | Cómo lo usa el Deportivo |
++|---|---|---|
++| Base de datos y migraciones | Portal Administrativo | Se conecta a la misma base. No cambia su estructura |
++| Inicio de sesión, cierre de sesión y elección de portales | Portal Administrativo | Recibe la sesión (`/login#sso=<token>`) y valida el token en cada pedido |
++| Deuda y habilitación de cada jugador | Portal Administrativo | La consulta por API; **nunca** la calcula |
++| Altas, bajas lógicas, categorías, fichas, asistencia (QR) | Portal Deportivo | Las escribe en la base compartida. Los cargos de un alta (inscripción y cuota) los genera el Administrativo |
++
++## Inicio de sesión único
++
++- `POST api/auth/login` responde 410: el Deportivo **no tiene login propio**. La ruta `/login` del frontend solo recibe la sesión que entrega el Administrativo y, si no hay una válida, redirige al login de allá sin mostrar nada.
++- `/admin/portales` lleva a la elección de portales del Administrativo (no hay otra).
++- Cada pedido valida el token **y** que la sesión siga vigente (usuario activo y `tokenVersion` al día): cerrar sesión en un portal la cierra en los dos.
++- Clave, emisor y audiencia del JWT son **los mismos** en los dos portales. Ver `LOCAL_CONFIGURATION.md`.
++- El rol 2 (Administrador del Administrativo) no entra al Deportivo.
++
++## Estado de deuda: contrato v1
++
++El QR y los listados consultan al Administrativo:
++
++- `GET {AdministrativoApi:BaseUrl}/api/integracion/v1/estado-deuda/dni/{dni}`
++- `POST {AdministrativoApi:BaseUrl}/api/integracion/v1/estado-deuda/lote` (para los listados; hasta 500 DNI)
++
++con el **mismo token del usuario** (`Authorization: Bearer ...`). La respuesta trae solo el estado: `habilitado`, `solo_entrenamientos`, `inhabilitado` o `baja`, más `accesoPermitido`. **Nunca** montos ni cantidad de cuotas, y este portal no debe mostrarlos. El contrato completo y el documento OpenAPI están en el repositorio del Administrativo (`docs/integracion`).
++
++### Qué hace el QR
++
++| Estado | Resultado |
++|---|---|
++| `habilitado` | Pasa, verde. Registra la asistencia (una por día) |
++| `solo_entrenamientos` | Pasa, amarillo |
++| `inhabilitado` / `baja` | No pasa, rojo. No registra asistencia |
++| El Administrativo no responde | **No pasa nadie** (503) y no se registra nada (`AdministrativoApi:SiNoResponde = Denegar`, decisión del club) |
++| La ruta v1 no existe en el Administrativo (404 sin mensaje) | Se trata como "no responde" y se registra en el log: revisar `BaseUrl` y la versión del Administrativo |
++
++Los listados muestran "SIN VERIFICAR" en el estado de cuota cuando el Administrativo no responde; el resto del portal sigue funcionando.
++
++## Reglas de escritura en la base compartida
++
++1. **Toda conexión de los DAO se abre con `OpenAuditadaAsync`**, no con `OpenAsync`: así cada cambio queda con su responsable en la auditoría. Una prueba (`DonQrSqlContractTests`) falla si se abre una conexión de otra forma.
++2. Los `INSERT` en tablas con trigger de auditoría usan `OUTPUT ... INTO` y no se calculan ids a mano (la base los genera).
++3. **Género (Masculino o Femenino) y categoría son obligatorios** para todo jugador; la base los exige. De ellos sale el arancel que se le cobra.
++4. **Dar de baja no borra nada**: `DELETE /api/jugadores/{id}` pone `fecha_baja`. Pagos, descuentos, asistencias y ficha médica se conservan. La reincorporación se hace desde el Administrativo.
++5. No se puede eliminar una categoría con jugadores o aranceles (409).
++
++## Altas de jugadores y sus cargos
++
++La inscripción y la cuota del mes las genera el Administrativo, con sus reglas (la inscripción es la de su género y en $0 no se cobra; la cuota, desde el día 10). Por eso, **después de grabar al jugador**, `POST api/jugadores` llama a:
++
++- `POST {AdministrativoApi:BaseUrl}/api/integracion/v1/jugadores/{idJugador}/cargos-alta`
++
++con el token del usuario (solo el SuperAdmin y el Administrador (Tesorero) pueden). La llamada es idempotente y la respuesta dice solo **si** se generó cada cargo, nunca montos.
++
++**El alta nunca se deshace por esa llamada.** Si el Administrativo no responde o rechaza, el jugador igual queda creado, la respuesta del alta trae `cargosGenerados: false` y un `avisoCargos` que el formulario muestra, y los cargos salen igual por los mecanismos de siempre: la cuota con la próxima generación mensual del Administrativo y la inscripción al registrar el primer pago. Cuando el Administrativo vuelve se puede repetir la llamada.
++
++## Probar los dos portales juntos
++
++Hay un entorno de prueba que arma la base, aplica la configuración y levanta los dos portales: https://github.com/Atzur1/cacc-unificacion (carpeta `docs`, con la guía paso a paso).
+diff -ruN a/LOCAL_CONFIGURATION.md b/LOCAL_CONFIGURATION.md
+--- a/LOCAL_CONFIGURATION.md	2026-10-20 17:23:20.089333000 -0300
++++ b/LOCAL_CONFIGURATION.md	2026-10-20 17:23:18.939460100 -0300
+@@ -1,14 +1,41 @@
+ # Local configuration
+ 
+-The API reads its database and JWT configuration from standard ASP.NET Core configuration. Keep machine-specific values out of Git by using environment variables or .NET user secrets.
++The API reads its database, JWT and integration settings from standard ASP.NET Core configuration. Keep machine-specific values out of Git by using environment variables or .NET user secrets.
++
++## Database
++
++The Portal Deportivo and the Portal Administrativo share **one SQL Server database** (the unified one). It is created empty, with its catalogs, by the script `ClubCamioneros_unificada_v2_crear_base.sql` from https://github.com/Atzur1/cacc-unificacion (folder `base-de-datos`). The structure is owned by the Portal Administrativo: schema changes travel as migrations in its repository. This API does not change the structure.
+ 
+ ```powershell
+ cd BackEnd/CACC.API
+ dotnet user-secrets init
+-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost\SQLEXPRESS;Database=ClubCamioneros;Trusted_Connection=True;TrustServerCertificate=True;"
+-dotnet user-secrets set "JwtSettings:Key" "<a private random key of at least 32 characters>"
++dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost;Database=ClubCamionerosUnificadaV2;Trusted_Connection=True;TrustServerCertificate=True;"
++```
++
++## JWT (single login)
++
++The login is the Portal Administrativo's; this API only validates its tokens, so **Key, Issuer and Audience must be exactly the same as the Administrativo's**. The key is private: share it through a private channel and never commit it. In production the API refuses to start with the sample key found in `appsettings.json`.
++
++```powershell
++dotnet user-secrets set "Jwt:Key" "<the same private key as the Administrativo, at least 32 characters>"
++dotnet user-secrets set "Jwt:Issuer" "<same as the Administrativo>"
++dotnet user-secrets set "Jwt:Audience" "<same as the Administrativo>"
+ ```
+ 
+-Alternatively, copy `appsettings.example.json` to `appsettings.Local.json` and load it only in your local environment. Never commit that local file.
++Environment variables work the same way: `Jwt__Key`, `Jwt__Issuer`, `Jwt__Audience`. The legacy `JwtSettings:*` names are still read as a fallback.
++
++## Portal Administrativo (debt status)
++
++```powershell
++dotnet user-secrets set "AdministrativoApi:BaseUrl" "http://localhost:5118"
++```
++
++`BaseUrl` is the address of the Administrativo's API (in Development it defaults to `http://localhost:5118`). Optional: `AdministrativoApi:TimeoutSegundos` (default 3) and `AdministrativoApi:SiNoResponde` (`Denegar`, the default and the club's decision: nobody gets in if the debt cannot be checked; `Permitir` marks the attendance as unverified). Details in `INTEGRACION_ADMINISTRATIVO.md`.
++
++## CORS and local login
++
++`Cors:AllowedOrigins` lists the allowed front-end origins (default in Development: ports 4200, the Administrativo, and 4300, this portal). `Auth:LoginPropio=true` turns the old local login back on, only for a development machine without the Administrativo.
++
++Alternatively, copy `CACC.API/appsettings.example.json` to `appsettings.Local.json` and load it only in your local environment. Never commit that local file (`appsettings.Development.json` is ignored).
+ 
+-Database setup scripts live in `BackEnd/scripts/database`. Development-only seed data lives in `BackEnd/scripts/development`.
++Development-only seed data lives in `BackEnd/scripts/development`.

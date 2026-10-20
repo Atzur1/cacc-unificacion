@@ -1,85 +1,324 @@
-diff -ruN a/src/app/features/semaforo-qr/semaforo-qr.spec.ts b/src/app/features/semaforo-qr/semaforo-qr.spec.ts
---- a/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 23:27:44.265849400 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-18 23:27:44.266869100 -0300
-@@ -21,7 +21,7 @@
-   });
+diff -ruN a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html
+--- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-20 17:23:21.030274900 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.html	2026-10-20 17:23:20.975441100 -0300
+@@ -97,6 +97,7 @@
+         <span>¡Jugador registrado y Código QR generado con éxito! Redirigiendo...</span>
+       </div>
  
-   it('announces and focuses an idempotently registered result', fakeAsync(() => {
--    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada', deudaTotal: 0, cuotasVencidas: 0 }));
-+    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada' }));
-     fixture.componentInstance.dni = '40111222';
-     fixture.componentInstance.submitManual();
-     fixture.detectChanges();
-@@ -42,32 +42,32 @@
++      <div *ngIf="avisoCargos" class="info-banner" role="status"><span class="banner-text">{{ avisoCargos }}</span></div>
+       <div *ngIf="errorGuardado" class="toast-error" role="alert">{{ errorGuardado }}</div>
+ 
+       <!-- Grilla de 2 Cards con distribución optimizada en 2 columnas -->
+@@ -115,7 +116,8 @@
+             <div class="form-row-2">
+               <div class="form-group">
+                 <label>DNI / Documento de Identidad <span class="required-asterisk">*</span></label>
+-                <input type="text" [(ngModel)]="dni" placeholder="Ej: 43123456" class="form-input" />
++                <input type="text" [(ngModel)]="dni" placeholder="Ej: 43123456" class="form-input" [class.form-control-invalid]="formularioEnviado && !dni.trim()" />
++                <span *ngIf="formularioEnviado && !dni.trim()" class="field-error" role="alert">Ingresá el DNI.</span>
+               </div>
+               <div class="form-group">
+                 <label for="genero">Género <span class="required-asterisk">*</span></label>
+@@ -137,11 +139,13 @@
+             <div class="form-row-2">
+               <div class="form-group">
+                 <label>Nombre <span class="required-asterisk">*</span></label>
+-                <input type="text" [(ngModel)]="nombre" placeholder="Nombre" class="form-input" />
++                <input type="text" [(ngModel)]="nombre" placeholder="Nombre" class="form-input" [class.form-control-invalid]="formularioEnviado && !nombre.trim()" />
++                <span *ngIf="formularioEnviado && !nombre.trim()" class="field-error" role="alert">Ingresá el nombre.</span>
+               </div>
+               <div class="form-group">
+                 <label>Apellido <span class="required-asterisk">*</span></label>
+-                <input type="text" [(ngModel)]="apellido" placeholder="Apellido" class="form-input" />
++                <input type="text" [(ngModel)]="apellido" placeholder="Apellido" class="form-input" [class.form-control-invalid]="formularioEnviado && !apellido.trim()" />
++                <span *ngIf="formularioEnviado && !apellido.trim()" class="field-error" role="alert">Ingresá el apellido.</span>
+               </div>
+             </div>
+ 
+@@ -154,13 +158,15 @@
+                        (input)="onFechaNacimientoInput($event)"
+                        placeholder="dd/mm/aaaa"
+                        maxlength="10"
+-                       class="form-input" />
++                       class="form-input"
++                       [class.form-control-invalid]="formularioEnviado && !fechaNacimiento" />
++                <span *ngIf="formularioEnviado && !fechaNacimiento" class="field-error" role="alert">Ingresá la fecha de nacimiento.</span>
+               </div>
+ 
+               <div class="form-group">
+                 <label>Categoría Asignada <span class="required-asterisk">*</span></label>
+                 <div class="select-wrapper">
+-                  <select [(ngModel)]="categoria" class="form-select">
++                  <select [(ngModel)]="categoria" class="form-select" [class.form-control-invalid]="formularioEnviado && !categoria">
+                     <option value="" disabled selected>Seleccionar categoría...</option>
+                     <option *ngFor="let cat of categoriasList" [value]="cat.id">
+                       {{ cat.nombre }} ({{ cat.asociacion }})
+@@ -170,6 +176,7 @@
+                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                   </span>
+                 </div>
++                <span *ngIf="formularioEnviado && !categoria" class="field-error" role="alert">Seleccioná una categoría.</span>
+               </div>
+             </div>
+ 
+diff -ruN a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.spec.ts b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.spec.ts
+--- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.spec.ts	1969-12-31 21:00:00.000000000 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.spec.ts	2026-10-20 17:23:21.031274200 -0300
+@@ -0,0 +1,99 @@
++import { TestBed } from '@angular/core/testing';
++import { provideHttpClient } from '@angular/common/http';
++import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
++import { provideRouter } from '@angular/router';
++import { AdminAltaJugadorComponent } from './admin-alta-jugador.component';
++
++const API_JUGADORES = 'http://localhost:5191/api/jugadores';
++
++describe('AdminAltaJugadorComponent: validación del alta', () => {
++  beforeEach(() => {
++    localStorage.clear();
++    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])] });
++  });
++
++  function crear() {
++    const fixture = TestBed.createComponent(AdminAltaJugadorComponent);
++    fixture.detectChanges();
++    const http = TestBed.inject(HttpTestingController);
++    http.match('http://localhost:5191/api/categorias');
++    return { fixture, componente: fixture.componentInstance, http };
++  }
++
++  function completar(c: AdminAltaJugadorComponent) {
++    c.dni = '41000001';
++    c.nombre = 'Juan';
++    c.apellido = 'Perez';
++    c.fechaNacimiento = '05/05/2010';
++    c.genero = 'Masculino';
++    c.categoria = 3;
++    c.posicion = 'Delantero';
++    c.esMenorDeEdad = false;
++  }
++
++  it('un alta incompleta dice qué campos faltan, sin cuadro del navegador y sin llamar a la API', () => {
++    const alerta = spyOn(window, 'alert');
++    const { componente, http } = crear();
++    componente.dni = '41000001';
++
++    componente.guardarYGenerarQR();
++
++    expect(alerta).not.toHaveBeenCalled();
++    for (const campo of ['Nombre', 'Apellido', 'Fecha de nacimiento', 'Género', 'Categoría', 'Posición']) {
++      expect(componente.errorGuardado).toContain(campo);
++    }
++    expect(componente.errorGuardado).not.toContain('DNI');
++    http.expectNone(API_JUGADORES);
++  });
++
++  it('marca en línea cada campo faltante', () => {
++    spyOn(window, 'alert');
++    const { fixture, componente } = crear();
++
++    componente.guardarYGenerarQR();
++    fixture.detectChanges();
++
++    const avisos = Array.from(fixture.nativeElement.querySelectorAll('.field-error') as NodeListOf<HTMLElement>).map((e) => e.textContent ?? '');
++    for (const texto of ['Ingresá el DNI', 'Ingresá el nombre', 'Ingresá el apellido', 'Ingresá la fecha de nacimiento', 'Seleccioná el género', 'Seleccioná una categoría', 'Seleccioná una posición']) {
++      expect(avisos.some((a) => a.includes(texto))).withContext(texto).toBeTrue();
++    }
++  });
++
++  it('un menor sin datos del tutor dice cuáles faltan, sin cuadro del navegador', () => {
++    const alerta = spyOn(window, 'alert');
++    const { componente, http } = crear();
++    completar(componente);
++    componente.esMenorDeEdad = true;
++
++    componente.guardarYGenerarQR();
++
++    expect(alerta).not.toHaveBeenCalled();
++    expect(componente.errorGuardado).toContain('tutor');
++    expect(componente.errorGuardado).toContain('teléfono');
++    http.expectNone(API_JUGADORES);
++  });
++
++  it('si el Portal Administrativo no generó los cargos, el alta queda hecha y se avisa', () => {
++    spyOn(window, 'alert');
++    const { componente, http } = crear();
++    completar(componente);
++
++    componente.guardarYGenerarQR();
++    http.expectOne(API_JUGADORES).flush({ dni: '41000001', nombre: 'Juan', apellido: 'Perez', cargosGenerados: false, avisoCargos: 'Aviso de cargos pendientes.' });
++
++    expect(componente.mensajeExito).toBeTrue();
++    expect(componente.avisoCargos).toBe('Aviso de cargos pendientes.');
++  });
++
++  it('si los cargos se generaron, no hay aviso', () => {
++    spyOn(window, 'alert');
++    const { componente, http } = crear();
++    completar(componente);
++
++    componente.guardarYGenerarQR();
++    http.expectOne(API_JUGADORES).flush({ dni: '41000001', nombre: 'Juan', apellido: 'Perez', cargosGenerados: true, avisoCargos: null });
++
++    expect(componente.mensajeExito).toBeTrue();
++    expect(componente.avisoCargos).toBe('');
++  });
++});
+diff -ruN a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts
+--- a/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-20 17:23:21.189403900 -0300
++++ b/src/app/features/admin-alta-jugador/admin-alta-jugador.component.ts	2026-10-20 17:23:21.134546600 -0300
+@@ -79,6 +79,8 @@
+   formularioEnviado = false;
+   guardando = false;
+   errorGuardado = '';
++  // Si el Portal Administrativo no pudo generar al momento la inscripción y la cuota, el alta igual queda hecha y se avisa.
++  avisoCargos = '';
+ 
+   mostrarPopupCredencial = false;
+ 
+@@ -218,13 +220,38 @@
+     });
    }
  
-   it('shows yellow with a month of debt', () => {
--    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', deudaTotal: 85000, cuotasVencidas: 1, verificado: true });
-+    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Un mes', verificado: true, estado: 'solo_entrenamientos' });
-     expect(card.classList).toContain('yellow');
-     expect(card.querySelector('h1')!.textContent).toContain('con deuda');
-   });
++  camposFaltantesDelJugador(): string[] {
++    const faltan: string[] = [];
++    if (!this.dni.trim()) faltan.push('DNI');
++    if (!this.nombre.trim()) faltan.push('Nombre');
++    if (!this.apellido.trim()) faltan.push('Apellido');
++    if (!this.fechaNacimiento) faltan.push('Fecha de nacimiento');
++    if (!this.genero) faltan.push('Género');
++    if (!this.categoria) faltan.push('Categoría');
++    if (!this.posicion) faltan.push('Posición');
++    return faltan;
++  }
++
++  camposFaltantesDelTutor(): string[] {
++    const faltan: string[] = [];
++    if (!this.tutorDni.trim()) faltan.push('DNI');
++    if (!this.tutorNombre.trim()) faltan.push('nombre');
++    if (!this.tutorApellido.trim()) faltan.push('apellido');
++    if (!this.tutorTelefono.trim()) faltan.push('teléfono');
++    if (!this.tutorParentesco) faltan.push('parentesco');
++    if (this.tutorParentesco === 'OTRO' && !this.tutorParentescoOtro.trim()) faltan.push('especificar el parentesco');
++    return faltan;
++  }
++
+   guardarYGenerarQR(): void {
+     if (this.guardando) return;
+     this.formularioEnviado = true;
+     this.errorGuardado = '';
++    this.avisoCargos = '';
  
-   it('shows red without access', () => {
--    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', deudaTotal: 170000, cuotasVencidas: 2, verificado: true });
-+    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Denegado', verificado: true, estado: 'inhabilitado' });
-     expect(card.classList).toContain('red');
-     expect(card.querySelector('h1')!.textContent).toContain('inhabilitado');
-   });
+-    if (!this.dni.trim() || !this.nombre.trim() || !this.apellido.trim() || !this.fechaNacimiento || !this.genero || !this.categoria || !this.posicion) {
+-      alert('Por favor complete los campos obligatorios (*) del Jugador.');
++    const faltan = this.camposFaltantesDelJugador();
++    if (faltan.length > 0) {
++      this.errorGuardado = `Completá los campos obligatorios: ${faltan.join(', ')}.`;
+       return;
+     }
  
-   it('shows red and says so when the player was removed from the club', () => {
--    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', deudaTotal: 0, cuotasVencidas: 0, verificado: true, estado: 'baja' });
-+    const card = mostrar({ accesoPermitido: false, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'Baja', verificado: true, estado: 'baja' });
-     expect(card.classList).toContain('red');
+@@ -235,12 +262,9 @@
+     }
+ 
+     if (this.esMenorDeEdad) {
+-      if (!this.tutorDni.trim() || !this.tutorNombre.trim() || !this.tutorApellido.trim() || !this.tutorTelefono.trim() || !this.tutorParentesco) {
+-        alert('Por ser menor de 18 años, debe completar los campos obligatorios (*) del Tutor Responsable.');
+-        return;
+-      }
+-      if (this.tutorParentesco === 'OTRO' && !this.tutorParentescoOtro.trim()) {
+-        alert('Por favor especifique el parentesco del tutor.');
++      const faltanDelTutor = this.camposFaltantesDelTutor();
++      if (faltanDelTutor.length > 0) {
++        this.errorGuardado = `Por ser menor de 18 años, completá los datos del tutor responsable: ${faltanDelTutor.join(', ')}.`;
+         return;
+       }
+     }
+@@ -274,6 +298,7 @@
+         this.nombre = jugador.nombre;
+         this.apellido = jugador.apellido;
+         this.mensajeExito = true;
++        this.avisoCargos = (jugador as { avisoCargos?: string | null }).avisoCargos ?? '';
+         this.mostrarPopupCredencial = true;
+         this.guardando = false;
+       },
+diff -ruN a/src/app/features/semaforo-qr/semaforo-qr.spec.ts b/src/app/features/semaforo-qr/semaforo-qr.spec.ts
+--- a/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-20 17:23:23.961451300 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.spec.ts	2026-10-20 17:23:23.587520100 -0300
+@@ -1,5 +1,5 @@
+ import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+-import { of } from 'rxjs';
++import { of, Subject } from 'rxjs';
+ import { SemaforoQrComponent } from './semaforo-qr';
+ import { AsistenciaService } from '../../shared/services/asistencia.service';
+ import { AuthService } from '../../shared/services/auth.service';
+@@ -59,6 +59,31 @@
      expect(card.querySelector('h1')!.textContent).toContain('dado de baja');
    });
  
++  it('says the attendance was already registered today instead of a new success', () => {
++    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: true, mensaje: 'Ya registrada', verificado: true, estado: 'habilitado' });
++    expect(card.classList).toContain('green');
++    expect(card.querySelector('h1')!.textContent).toContain('Ya registrado hoy');
++  });
++
++  it('does not block manual entry while the camera is being activated', () => {
++    void fixture.componentInstance.startCamera();
++    expect(fixture.componentInstance.state).not.toBe('loading');
++  });
++
++  it('ignores a late response once the screen was reset with Volver', () => {
++    const tardia = new Subject<object>();
++    registrar.and.returnValue(tardia);
++    fixture.componentInstance.dni = '40111222';
++    fixture.componentInstance.submitManual();
++    expect(fixture.componentInstance.state).toBe('loading');
++
++    fixture.componentInstance.retry();
++    tardia.next({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'tarde', verificado: true, estado: 'habilitado' });
++
++    expect(fixture.componentInstance.result).toBeUndefined();
++    expect(fixture.componentInstance.state).not.toBe('result');
++  });
++
    it('shows yellow, never green, when the debt could not be verified', () => {
--    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', deudaTotal: 0, cuotasVencidas: 0, verificado: false, estado: 'sin_verificar' });
-+    const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', verificado: false, estado: 'sin_verificar' });
+     const card = mostrar({ accesoPermitido: true, asistenciaRegistrada: true, yaRegistrada: false, mensaje: 'Sin verificar', verificado: false, estado: 'sin_verificar' });
      expect(card.classList).toContain('yellow');
-     expect(card.classList).not.toContain('green');
-     expect(card.querySelector('h1')!.textContent).toContain('sin verificar');
-   });
- 
-   it('does not show green or yellow without backend attendance confirmation', () => {
--    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada', deudaTotal: 0, cuotasVencidas: 0 }));
-+    registrar.and.returnValue(of({ accesoPermitido: true, asistenciaRegistrada: false, yaRegistrada: false, mensaje: 'No confirmada' }));
-     fixture.componentInstance.dni = '40111222';
-     fixture.componentInstance.submitManual();
-     fixture.detectChanges();
 diff -ruN a/src/app/features/semaforo-qr/semaforo-qr.ts b/src/app/features/semaforo-qr/semaforo-qr.ts
---- a/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 23:27:44.009205800 -0300
-+++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-18 23:27:44.010203600 -0300
-@@ -23,8 +23,8 @@
-     }catch{this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}
+--- a/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-20 17:23:24.271296500 -0300
++++ b/src/app/features/semaforo-qr/semaforo-qr.ts	2026-10-20 17:23:23.963459600 -0300
+@@ -14,22 +14,29 @@
+   private readonly api=inject(AsistenciaService); private readonly auth=inject(AuthService);
+   private reader?:BrowserMultiFormatReader; private controls?:IScannerControls; private locked=false;
+   state:ViewState='scanner'; dni=''; error=''; result?:IngresoResult; cameraStarted=false;
++  private ronda=0; private iniciandoCamara=false;
++  // La pantalla está libre si no se está registrando un ingreso ni mostrando un resultado.
++  private libre():boolean{return this.state!=='loading'&&this.state!=='result'}
+   async startCamera():Promise<void>{
+-    this.stopCamera(); this.state='loading'; this.error='';
++    // Activar la cámara NO bloquea la pantalla: "Procesando…" es solo para cuando se registra un ingreso. Así se puede seguir
++    // ingresando el documento a mano mientras el navegador espera el permiso de la cámara.
++    if(this.iniciandoCamara) return; this.iniciandoCamara=true;
++    this.stopCamera(); this.error='';
+     try{ this.reader=new BrowserMultiFormatReader(); await new Promise(r=>setTimeout(r));
+       if(!this.video) throw new Error('Visor no disponible');
+       this.controls=await this.reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:'environment'}}},this.video.nativeElement,(value)=>{if(value&&!this.locked)this.processPayload(value.getText())});
+-      this.cameraStarted=true; this.state='scanner';
+-    }catch{this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}
++      this.cameraStarted=true; if(this.libre()) this.state='scanner';
++    }catch{if(this.libre()){this.state='permission-error';this.error='No se pudo acceder a la cámara. Revisá el permiso del navegador y usá HTTPS o localhost.'}}
++    finally{this.iniciandoCamara=false}
    }
    // Verde: al día. Amarillo: con un mes de deuda o ingreso sin verificar la deuda. Rojo: sin acceso (inhabilitado o dado de baja).
--  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.cuotasVencidas>=1?'yellow':'green'}
--  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.cuotasVencidas===0?'¡Registro exitoso!':'¡Jugador con deuda!'}
-+  get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.estado==='solo_entrenamientos'?'yellow':'green'}
-+  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.estado==='solo_entrenamientos'?'¡Jugador con deuda!':'¡Registro exitoso!'}
+   get tono():'green'|'yellow'|'red'{const r=this.result;if(!r||!r.accesoPermitido)return 'red';return r.verificado===false||r.estado==='solo_entrenamientos'?'yellow':'green'}
+-  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';return r.estado==='solo_entrenamientos'?'¡Jugador con deuda!':'¡Registro exitoso!'}
++  get titulo():string{const r=this.result;if(!r)return '';if(!r.accesoPermitido)return r.estado==='baja'?'Jugador dado de baja':'Jugador inhabilitado';if(r.verificado===false)return '¡Ingreso sin verificar!';if(r.yaRegistrada)return 'Ya registrado hoy';return r.estado==='solo_entrenamientos'?'¡Jugador con deuda!':'¡Registro exitoso!'}
    get icono():string{return this.tono==='green'?'✓':this.tono==='yellow'?'!':'×'}
    submitManual():void{this.processPayload(this.dni)}
-   retry():void{this.result=undefined;this.error='';this.dni='';this.locked=false;this.state='scanner';void this.startCamera()}
-diff -ruN a/src/app/shared/services/asistencia.service.spec.ts b/src/app/shared/services/asistencia.service.spec.ts
---- a/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 23:27:43.755083700 -0300
-+++ b/src/app/shared/services/asistencia.service.spec.ts	2026-10-18 23:27:43.756072100 -0300
-@@ -1,4 +1,4 @@
- import { TestBed } from '@angular/core/testing';
- import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
- import { AsistenciaService } from './asistencia.service';
--describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.cuotasVencidas).toBe(1));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',deudaTotal:100,cuotasVencidas:1})})});
-+describe('AsistenciaService',()=>{let service:AsistenciaService;let http:HttpTestingController;beforeEach(()=>{TestBed.configureTestingModule({imports:[HttpClientTestingModule]});service=TestBed.inject(AsistenciaService);http=TestBed.inject(HttpTestingController)});afterEach(()=>http.verify());it('uses the atomic attendance endpoint with the scanned DNI',()=>{service.registrar('40111222').subscribe(r=>expect(r.estado).toBe('solo_entrenamientos'));const req=http.expectOne('http://127.0.0.1:5191/api/asistencias/verificar-y-registrar');expect(req.request.method).toBe('POST');expect(req.request.body).toEqual({dni:'40111222'});req.flush({accesoPermitido:true,asistenciaRegistrada:true,yaRegistrada:false,mensaje:'ok',estado:'solo_entrenamientos',verificado:true})})});
-diff -ruN a/src/app/shared/services/asistencia.service.ts b/src/app/shared/services/asistencia.service.ts
---- a/src/app/shared/services/asistencia.service.ts	2026-10-18 23:27:43.503840800 -0300
-+++ b/src/app/shared/services/asistencia.service.ts	2026-10-18 23:27:43.503840800 -0300
-@@ -3,7 +3,7 @@
- import { Observable } from 'rxjs';
- 
- // verificado=false: el Portal Administrativo no respondió y el ingreso quedó marcado para revisar (la deuda es desconocida).
--export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; deudaTotal: number; cuotasVencidas: number; verificado?: boolean; estado?: string; }
-+export interface IngresoResult { accesoPermitido: boolean; asistenciaRegistrada: boolean; yaRegistrada: boolean; mensaje: string; verificado?: boolean; estado?: string; }
- @Injectable({ providedIn: 'root' })
- export class AsistenciaService {
-   private readonly http = inject(HttpClient);
+-  retry():void{this.result=undefined;this.error='';this.dni='';this.locked=false;this.state='scanner';void this.startCamera()}
++  retry():void{this.ronda++;this.result=undefined;this.error='';this.dni='';this.locked=false;this.state='scanner';void this.startCamera()}
+   logout():void{this.stopCamera();this.auth.logout();location.assign('/login')}
+   ngOnDestroy():void{this.stopCamera()}
+-  private processPayload(payload:string):void{const dni=(payload.match(/\d{7,9}/)?.[0]??'').trim();if(!dni){this.error='El código QR o DNI no es válido.';this.state='error';return}this.locked=true;this.stopCamera();this.state='loading';this.api.registrar(dni).pipe(finalize(()=>this.locked=false)).subscribe({next:r=>{if(r.accesoPermitido&&!r.asistenciaRegistrada&&!r.yaRegistrada){this.error='El servidor no confirmó el registro de asistencia.';this.state='error';return}this.result=r;this.state='result';setTimeout(()=>this.resultHeading?.nativeElement.focus())},error:e=>{this.error=e?.error?.message??'No se pudo registrar el ingreso.';this.state='error'}})}
++  private processPayload(payload:string):void{const dni=(payload.match(/\d{7,9}/)?.[0]??'').trim();if(!dni){this.error='El código QR o DNI no es válido.';this.state='error';return}this.locked=true;this.stopCamera();this.state='loading';const ronda=this.ronda;this.api.registrar(dni).pipe(finalize(()=>this.locked=false)).subscribe({next:r=>{if(ronda!==this.ronda)return;if(r.accesoPermitido&&!r.asistenciaRegistrada&&!r.yaRegistrada){this.error='El servidor no confirmó el registro de asistencia.';this.state='error';return}this.result=r;this.state='result';setTimeout(()=>this.resultHeading?.nativeElement.focus())},error:e=>{if(ronda!==this.ronda)return;this.error=e?.error?.message??'No se pudo registrar el ingreso.';this.state='error'}})}
+   private stopCamera():void{this.controls?.stop();this.controls=undefined;this.cameraStarted=false;this.video?.nativeElement.srcObject&&Array.from((this.video.nativeElement.srcObject as MediaStream).getTracks()).forEach(t=>t.stop())}
+ }

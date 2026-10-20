@@ -42,8 +42,8 @@
 
 <table>
   <tr><th>Archivo</th><th>Para qué sirve</th></tr>
-  <tr><td><code>ellos-definitivo.patch</code></td><td>Parche del <b>BackEnd</b> (24 archivos: DAO, controladores, Program.cs, pruebas).</td></tr>
-  <tr><td><code>ellos-definitivo-frontend.patch</code></td><td>Parche del <b>FrontEnd</b> (24 archivos: alta de jugador, QR, sin login ni selector de portales propios, sesión).</td></tr>
+  <tr><td><code>ellos-definitivo.patch</code></td><td>Parche del <b>BackEnd</b> (28 archivos: DAO, controladores, Program.cs, pruebas y documentación de configuración).</td></tr>
+  <tr><td><code>ellos-definitivo-frontend.patch</code></td><td>Parche del <b>FrontEnd</b> (26 archivos: alta de jugador, QR, sin login ni selector de portales propios, sesión).</td></tr>
   <tr><td><code>aplicar-parche.ps1</code></td><td>Script que aplica un parche cuidando los saltos de línea (CRLF/BOM) de sus archivos.</td></tr>
   <tr><td><code>ClubCamioneros_unificada_v2_crear_base.sql</code></td><td>Script que crea la base unificada (vacía, con los catálogos).</td></tr>
   <tr><td><code>seed_cuentas_prueba.sql</code></td><td>Cuentas de prueba (solo para desarrollo, nunca en producción).</td></tr>
@@ -97,10 +97,10 @@ sqlcmd -S localhost -E -C -b -i ClubCamioneros_unificada_v2_crear_base.sql</pre>
 <h3>3.1 Verificar que aplica (no modifica nada)</h3>
 <pre>cd UNIF\parches
 .\aplicar-parche.ps1 -Parche .\ellos-definitivo.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd -Verificar</pre>
-<p>Debe decir: <i>OK: el parche aplica (24 archivos). No se modificó nada.</i> Si falla, deténganse y avísennos con el mensaje de error.</p>
+<p>Debe decir: <i>OK: el parche aplica (28 archivos). No se modificó nada.</i> Si falla, deténganse y avísennos con el mensaje de error.</p>
 <h3>3.2 Aplicarlo</h3>
 <pre>.\aplicar-parche.ps1 -Parche .\ellos-definitivo.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd</pre>
-<p>Debe decir: <i>Parche aplicado: 24 archivos.</i> El script respeta el formato (CRLF/BOM) de cada archivo, así que en <code>git diff</code> solo van a ver los cambios reales.</p>
+<p>Debe decir: <i>Parche aplicado: 28 archivos.</i> El script respeta el formato (CRLF/BOM) de cada archivo, así que en <code>git diff</code> solo van a ver los cambios reales.</p>
 <div class="box warn">Si PowerShell bloquea el script: <code>Set-ExecutionPolicy -Scope Process Bypass</code> y volver a ejecutarlo.</div>
 
 <h2>4. Paso 3 · Configurar el BackEnd</h2>
@@ -133,18 +133,18 @@ sqlcmd -S localhost -E -C -b -i ClubCamioneros_unificada_v2_crear_base.sql</pre>
 <pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\BackEnd
 dotnet build CACC.API\CACC.API.csproj
 dotnet test CACC.Tests\CACC.Tests.csproj</pre>
-<div class="box ok"><b>Resultado esperado:</b> compila sin errores y <b>59 pruebas correctas, 0 con error</b> (antes eran 18; se reescribieron las del QR porque ahora consulta al Administrativo).</div>
+<div class="box ok"><b>Resultado esperado:</b> compila sin errores y <b>77 pruebas correctas, 0 con error</b> (antes eran 18; se reescribieron las del QR porque ahora consulta al Administrativo).</div>
 
 <h2>6. Paso 5 · Aplicar el parche del FrontEnd y probarlo</h2>
 <pre>cd UNIF\parches
 .\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd -Verificar
 .\aplicar-parche.ps1 -Parche .\ellos-definitivo-frontend.patch -Carpeta C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd</pre>
-<p>Debe decir que aplicó 24 archivos. Luego:</p>
+<p>Debe decir que aplicó 26 archivos. Luego:</p>
 <pre>cd C:\ruta\a\App-Club-Atletico-Camioneros\FrontEnd
 npm ci
 npx ng build
 npx ng test --watch=false --browsers=ChromeHeadless</pre>
-<div class="box ok"><b>Resultado esperado:</b> el build termina bien (los avisos de “exceeded maximum budget” ya existían). Pruebas: <b>61 en total, 60 correctas</b>. La que falla es <code>admin-coordinador-legacy-routes</code> y ya fallaba <b>antes</b> del parche (nombres de clases); no la tienen que arreglar para esto.</div>
+<div class="box ok"><b>Resultado esperado:</b> el build termina bien (los avisos de “exceeded maximum budget” ya existían). Pruebas: <b>69 en total, 68 correctas</b>. La que falla es <code>admin-coordinador-legacy-routes</code> y ya fallaba <b>antes</b> del parche (nombres de clases); no la tienen que arreglar para esto.</div>
 <h3>Dirección del Portal Administrativo</h3>
 <p>Abran <code>FrontEnd\src\app\core\auth\portales.config.ts</code>. En desarrollo debe decir <code>http://localhost:4200</code> (así viene). <b>Al publicar</b>, cambiar por la dirección real del Administrativo.</p>
 
@@ -159,7 +159,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
 </table>
 <div class="box ok"><b>Atajo:</b> en <code>UNIF\scripts</code> hay un script que arma y levanta las dos APIs solas, con la base de prueba, para no configurar a mano:
 <pre>.\armar.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\App-Club-Atletico-Camioneros" -Recrear -Iniciar
-.\probar.ps1      # 88 verificaciones automáticas contra las dos APIs
+.\probar.ps1      # 102 verificaciones automáticas contra las dos APIs
 .\detener.ps1     # frena las APIs de prueba</pre>
 (Trabaja sobre una copia: no modifica sus repositorios. Usa los puertos 5318 y 5319.)</div>
 

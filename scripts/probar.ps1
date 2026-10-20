@@ -99,6 +99,9 @@ Chk 'Flujo' 'el alta del Deportivo guarda el genero y la categoria' ((SQ "SELECT
 $r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000010'; nombre = 'Sin'; apellido = 'Genero'; fechaNacimiento = '2012-01-01'; categoria = '3' }; Chk 'Obligatorios' 'el Deportivo rechaza un alta sin genero' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
 $r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000011'; nombre = 'Sin'; apellido = 'Categoria'; fechaNacimiento = '2012-01-01'; genero = 'Masculino' }; Chk 'Obligatorios' 'el Deportivo rechaza un alta sin categoria' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
 Chk 'Obligatorios' 'ninguna de las altas incompletas dejo una persona o un jugador en la base' ((SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni IN ('41000010','41000011')") -eq '0') ''
+$antesDelGenerador = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id AND concepto='Cuota' AND fecha_vencimiento='$(& $f $ultimo)' AND estado=0 AND monto_final=85000")
+if ($hoy.Day -ge 10) { Chk 'Cargos' 'el alta del Deportivo genera la cuota del mes al instante, sin esperar al generador' ($antesDelGenerador -eq 1) "cuotas=$antesDelGenerador" }
+else { Chk 'Cargos' 'antes del dia 10 el alta no genera la cuota del mes (la recibe con la generacion mensual)' ($antesDelGenerador -eq 0) "cuotas=$antesDelGenerador" }
 ReiniciarNuestro   # el generador de cuotas corre al iniciar y cada 6 horas
 $T = Login '20111222'
 $cuotas = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id AND concepto='Cuota' AND fecha_vencimiento='$(& $f $ultimo)' AND estado=0 AND monto_final=85000")
@@ -162,6 +165,19 @@ Chk 'Inscripcion' 'el historial trae el genero de cada arancel' ($r.s -eq 200 -a
 $r = Call 'GET' "$A/api/enrollmentfees/current?gender=Femenino" $T; Chk 'Inscripcion' 'consulta del arancel vigente por genero' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).amount -eq 30000) "HTTP $($r.s)"
 # $0 = deja de cobrarse: se programa para manana y hoy sigue vigente el de $30.000
 $r = Call 'POST' "$A/api/enrollmentfees" $T @{ gender = 'Femenino'; amount = 0; startDate = (& $f $hoy.AddDays(1)) }; Chk 'Inscripcion' 'se puede programar $0 (ese genero deja de pagar inscripcion)' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
+# --- Altas desde el Deportivo: el Administrativo genera la inscripcion y la cuota (opcion A del contrato v1)
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000020'; nombre = 'Cargos'; apellido = 'Varon'; fechaNacimiento = '2012-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }; $cv = if ($r.s -eq 201) { $r.b | ConvertFrom-Json } else { $null }
+$idV = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000020'")
+Chk 'Cargos' 'el alta de un varon desde el Deportivo genera su inscripcion masculina ($70.000)' ($r.s -eq 201 -and $cv.cargosGenerados -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idV AND concepto='Inscripcion' AND estado=0 AND monto_final=70000") -eq 1) "HTTP $($r.s)"
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000021'; nombre = 'Cargos'; apellido = 'Mujer'; fechaNacimiento = '2012-03-04'; genero = 'Femenino'; categoria = '3'; posicion = 'Defensor' }
+$idM = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000021'")
+Chk 'Cargos' 'el alta de una mujer desde el Deportivo genera la inscripcion femenina vigente ($30.000)' ($r.s -eq 201 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idM AND concepto='Inscripcion' AND estado=0 AND monto_final=30000") -eq 1) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/integracion/v1/jugadores/$idV/cargos-alta" $T; $x = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Cargos' 'avisar dos veces no duplica nada' ($r.s -eq 200 -and -not $x.inscripcionGenerada -and -not $x.cuotaGenerada -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idV AND concepto='Inscripcion'") -eq 1 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idV AND concepto='Cuota'") -le 1) "HTTP $($r.s) $($r.b)"
+Chk 'Cargos' 'la respuesta dice solo si se genero cada cargo, nunca montos' ((($x.PSObject.Properties.Name | Sort-Object) -join ',') -eq 'cuotaGenerada,idJugador,inscripcionGenerada') (($x.PSObject.Properties.Name | Sort-Object) -join ',')
+$r = Call 'POST' "$A/api/integracion/v1/jugadores/$idV/cargos-alta" $TM; Chk 'Cargos' 'la Medica no puede pedir cargos de alta: 403' ($r.s -eq 403) "HTTP $($r.s)"
+$r = Call 'POST' "$A/api/integracion/v1/jugadores/999999/cargos-alta" $T; Chk 'Cargos' 'un jugador que no existe: 404 con mensaje (no confundible con una ruta inexistente)' ($r.s -eq 404 -and $r.b -match 'mensaje') "HTTP $($r.s) $($r.b)"
+$r = Call 'POST' "$A/api/integracion/v1/jugadores/$idV/cargos-alta" $null; Chk 'Cargos' 'sin token: 401' ($r.s -eq 401) "HTTP $($r.s)"
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',
@@ -213,8 +229,14 @@ $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '4100000
 Chk 'QR' 'si el Administrativo no responde, no pasa nadie (503) y no se registra asistencia' ($r.s -eq 503 -and [int](SQ "SELECT COUNT(*) FROM ASISTENCIAS WHERE FK_id_jugador=$id") -eq 0) "HTTP $($r.s) $($r.b)"
 Chk 'Deportivo' 'sin el Administrativo el listado sigue funcionando y marca SIN VERIFICAR' ((EstadoCuotaListado $T) -eq 'SIN VERIFICAR') (EstadoCuotaListado $T)
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '10000001' }; Chk 'QR' 'sin el Administrativo, un DNI que no es de un jugador tampoco pasa' ($r.s -in 422, 503) "HTTP $($r.s)"
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000030'; nombre = 'Sin'; apellido = 'Conexion'; fechaNacimiento = '2012-02-02'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }; $cc = if ($r.s -eq 201) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Cargos' 'si el Administrativo no responde, el alta del Deportivo igual queda hecha y avisa que los cargos quedaron pendientes' ($r.s -eq 201 -and $cc.cargosGenerados -eq $false -and $cc.avisoCargos -match 'primer pago' -and [int](SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni='41000030'") -eq 1) "HTTP $($r.s) $($r.b)"
 ReiniciarNuestro
 $T = Login '20111222'
+$idCaida = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000030'")
+$r = Call 'POST' "$A/api/integracion/v1/jugadores/$idCaida/cargos-alta" $T
+$cuotasCaida = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idCaida AND concepto='Cuota'"); $inscCaida = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idCaida AND concepto='Inscripcion'")
+Chk 'Cargos' 'cuando el Administrativo vuelve, los cargos pendientes se completan sin duplicar (la cuota puede haberla emitido ya el generador)' ($r.s -eq 200 -and $inscCaida -eq 1 -and $cuotasCaida -eq $(if ($hoy.Day -ge 10) { 1 } else { 0 })) "HTTP $($r.s) cuotas=$cuotasCaida inscripcion=$inscCaida"
 $pagosAntes = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id")
 $r = Call 'DELETE' "$B/api/jugadores/$id" $T; Chk 'Bajas' 'borrar un jugador desde el Deportivo es una baja logica' ($r.s -eq 200) "HTTP $($r.s) $($r.b)"
 Chk 'Bajas' 'se conservan la persona, los pagos y el historial' ((SQ "SELECT CAST((SELECT COUNT(*) FROM PERSONAS WHERE dni='41000001') AS varchar)+'/'+CAST((SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id) AS varchar)+'/'+CAST(activo AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq "1/$pagosAntes/0") "pagos=$pagosAntes"

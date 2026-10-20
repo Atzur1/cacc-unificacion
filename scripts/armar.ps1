@@ -69,11 +69,11 @@ Copy-Item (Join-Path $RepoNuestro 'frontend-cacc\public\cacc-email-header.jpg') 
 Remove-Item (Join-Path $n 'ApiGestion\appsettings.Development.json') -Force -ErrorAction SilentlyContinue   # trae credenciales reales
 Copiar (Join-Path $RepoEllos 'BackEnd') (Join-Path $Destino 'ellos\BackEnd')
 
-# ---- 1b. saltos de linea: los parches estan en LF y sin BOM. Un clon en Windows puede traer CRLF o BOM:
+# ---- 1b. saltos de linea (codigo, documentos y configuracion): los parches estan en LF y sin BOM. Un clon en Windows puede traer CRLF o BOM:
 #          se normaliza la COPIA de trabajo (nunca tus repos). Se trabaja byte a byte (Latin-1), sin alterar acentos.
 Paso "Normalizando saltos de linea de la copia"
 $latin1 = [Text.Encoding]::GetEncoding(28591); $norm = 0
-Get-ChildItem $Destino -Recurse -Filter *.cs -File | Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } | ForEach-Object {
+Get-ChildItem $Destino -Recurse -File | Where-Object { $_.Extension -in '.cs', '.md', '.json' -and $_.FullName -notmatch '\\(bin|obj|node_modules|\.angular|dist)\\' } | ForEach-Object {
     $b = [IO.File]::ReadAllBytes($_.FullName)
     $t = $latin1.GetString($b)
     $t2 = $t.Replace("`r`n", "`n")
