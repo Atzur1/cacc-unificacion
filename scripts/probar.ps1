@@ -183,6 +183,19 @@ $r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000022'; nombre = 'LUCIA DE L
 Chk 'Nombres' 'el Deportivo guarda "LUCIA DE LOS ANGELES" / "gomez" como "Lucia de los Angeles" / "Gomez"' ($r.s -eq 201 -and (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='41000022'") -eq 'Lucia de los Angeles/Gomez') (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='41000022'")
 $r = Call 'POST' "$A/api/players" $T @{ firstName = 'JUAN CARLOS'; lastName = 'mcdonald-PEREZ'; dni = '42000005'; birthDate = '2012-03-03'; gender = 'Masculino'; categoryId = 3 }
 Chk 'Nombres' 'el Administrativo guarda "JUAN CARLOS" / "mcdonald-PEREZ" como "Juan Carlos" / "McDonald-Perez"' ($r.s -eq 201 -and (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='42000005'") -eq 'Juan Carlos/McDonald-Perez') (SQ "SELECT nombre+'/'+apellido FROM PERSONAS WHERE dni='42000005'")
+# --- Inscripcion programada: quien entro con la inscripcion ya cargada y todavia no la tiene, la paga el dia que rige (la genera el proceso automatico)
+$r = Call 'POST' "$B/api/jugadores" $T @{ dni = '41000023'; nombre = 'Programada'; apellido = 'Mujer'; fechaNacimiento = '2012-03-06'; genero = 'Femenino'; categoria = '3'; posicion = 'Defensor' }
+$idP = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000023'")
+$idA = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='41000021'")
+# Se simula que entro cuando la inscripcion todavia no tenia efecto: sin inscripcion, alta 3 dias atras y la inscripcion vigente cargada hace 10 dias.
+SQ "DELETE FROM PAGOS WHERE FK_id_jugador=$idP AND concepto='Inscripcion'; UPDATE JUGADORES SET fecha_alta='$(& $f $hoy.AddDays(-3))' WHERE PK_id_jugador=$idP; UPDATE JUGADORES SET fecha_alta='$(& $f $hoy.AddDays(-30))' WHERE PK_id_jugador=$idA; DELETE FROM PAGOS WHERE FK_id_jugador=$idA AND concepto='Inscripcion'; UPDATE ac SET fecha_utc = DATEADD(DAY,-10,fecha_utc) FROM AUDITORIA_CAMBIOS ac WHERE ac.entidad=N'ARANCELES_INSCRIPCION' AND ac.accion='INSERT' AND ac.id_entidad IN (SELECT CONVERT(NVARCHAR(128),PK_id_arancel_inscripcion) FROM ARANCELES_INSCRIPCION WHERE genero='Femenino' AND monto=30000)" | Out-Null
+ReiniciarNuestro   # el proceso automatico corre al iniciar
+$T = Login '20111222'; Start-Sleep 2
+Chk 'Inscripcion programada' 'quien entro con la inscripcion ya cargada recibe la inscripcion femenina ($30.000) pendiente' ([int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idP AND concepto='Inscripcion' AND estado=0 AND monto_final=30000 AND fecha_vencimiento='$(& $f $hoy)'") -eq 1) ''
+Chk 'Inscripcion programada' 'quien ya estaba antes de que se cargara la inscripcion no recibe ningun cobro' ([int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idA AND concepto='Inscripcion'") -eq 0) ''
+ReiniciarNuestro
+$T = Login '20111222'; Start-Sleep 2
+Chk 'Inscripcion programada' 'repetir el proceso no duplica la inscripcion' ([int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idP AND concepto='Inscripcion'") -eq 1) ''
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',

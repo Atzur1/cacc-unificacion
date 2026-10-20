@@ -4,7 +4,7 @@
     "repo": "Atzur1/Sistema-Administrativo---CACC",
     "rama": "main",
     "commit": "con la regla de nombres (PR feat/nombres-en-formato-propio) y los cargos de alta (f88904e) mergeados",
-    "nota": "Estado probado el 2026-10-20: 104 verificaciones sin fallas. Si cambia, confirmar con git log."
+    "nota": "Estado probado el 2026-10-20: 107 verificaciones sin fallas. Si cambia, confirmar con git log."
   },
   "ellos": {
     "repo": "NejoCHZ/App-Club-Atletico-Camioneros",
