@@ -196,6 +196,33 @@ Chk 'Inscripcion programada' 'quien ya estaba antes de que se cargara la inscrip
 ReiniciarNuestro
 $T = Login '20111222'; Start-Sleep 2
 Chk 'Inscripcion programada' 'repetir el proceso no duplica la inscripcion' ([int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idP AND concepto='Inscripcion'") -eq 1) ''
+# --- Inscripcion ANUAL: cada jugador activo recibe la siguiente al cumplirse el anio de la anterior (su anio empieza el dia de su alta)
+$altaVaron = { param($dni, $nombre) Call 'POST' "$B/api/jugadores" $T @{ dni = $dni; nombre = $nombre; apellido = 'Anual'; fechaNacimiento = '2012-03-07'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' } }
+foreach ($par in @(@('41000024', 'Renueva'), @('41000025', 'DeBaja'), @('41000026', 'Vuelve'), @('41000027', 'Tarde'))) { [void](& $altaVaron $par[0] $par[1]) }
+$ids = @{}
+foreach ($dni in '41000024', '41000025', '41000026', '41000027') { $ids[$dni] = [int](SQ "SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='$dni'") }
+$inscr = { param($dni) [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$($ids[$dni]) AND concepto='Inscripcion'") }
+Chk 'Inscripcion anual' 'cada alta nueva recibe su inscripcion del primer anio' ((& $inscr '41000024') -eq 1 -and (& $inscr '41000027') -eq 1) ''
+# Se simula que pasaron un poco mas de 12 meses (los dos primeros) y mas de 13 (el ultimo): el arancel masculino rige desde hace mucho.
+$hace368 = & $f $hoy.AddDays(-368); $hace400 = & $f $hoy.AddDays(-400)
+SQ "UPDATE ARANCELES_INSCRIPCION SET vigente_desde='$(& $f $hoy.AddDays(-2000))' WHERE genero='Masculino' AND monto=70000; UPDATE JUGADORES SET fecha_alta='$hace368' WHERE PK_id_jugador IN ($($ids['41000024']),$($ids['41000025'])); UPDATE PAGOS SET fecha_vencimiento='$hace368' WHERE concepto='Inscripcion' AND FK_id_jugador IN ($($ids['41000024']),$($ids['41000025'])); UPDATE JUGADORES SET fecha_alta='$hace400' WHERE PK_id_jugador=$($ids['41000027']); UPDATE PAGOS SET fecha_vencimiento='$hace400' WHERE concepto='Inscripcion' AND FK_id_jugador=$($ids['41000027'])" | Out-Null
+# Quien se da de baja no recibe la siguiente; el que vuelve dentro del anio no la paga de nuevo; el que vuelve despues de terminado el anio empieza uno nuevo.
+foreach ($dni in '41000025', '41000026', '41000027') { [void](Call 'POST' "$A/api/jugadores/$($ids[$dni])/baja" $T @{ fecha = (& $f $hoy) }) }
+$r = Call 'POST' "$A/api/jugadores/$($ids['41000026'])/reactivar" $T; Chk 'Inscripcion anual' 'el reingreso dentro del anio no genera otra inscripcion' ($r.s -eq 200 -and (& $inscr '41000026') -eq 1) "HTTP $($r.s) inscripciones=$(& $inscr '41000026')"
+$r = Call 'POST' "$A/api/jugadores/$($ids['41000027'])/reactivar" $T; Chk 'Inscripcion anual' 'el reingreso despues de terminado el anio empieza uno nuevo (vence hoy, con el arancel vigente)' ($r.s -eq 200 -and (& $inscr '41000027') -eq 2 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$($ids['41000027']) AND concepto='Inscripcion' AND estado=0 AND monto_final=70000 AND fecha_vencimiento='$(& $f $hoy)'") -eq 1) "HTTP $($r.s) inscripciones=$(& $inscr '41000027')"
+ReiniciarNuestro   # el proceso automatico corre al iniciar
+$T = Login '20111222'; Start-Sleep 2
+Chk 'Inscripcion anual' 'al cumplirse el anio se emite la siguiente al jugador activo (vence el aniversario, con el arancel vigente)' ((& $inscr '41000024') -eq 2 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$($ids['41000024']) AND concepto='Inscripcion' AND estado=0 AND monto_final=70000 AND fecha_vencimiento='$(& $f $hoy.AddDays(-3))'") -eq 1) "inscripciones=$(& $inscr '41000024')"
+Chk 'Inscripcion anual' 'quien esta de baja no recibe la siguiente' ((& $inscr '41000025') -eq 1) "inscripciones=$(& $inscr '41000025')"
+ReiniciarNuestro
+$T = Login '20111222'; Start-Sleep 2
+Chk 'Inscripcion anual' 'repetir el proceso no duplica nada' ((& $inscr '41000024') -eq 2 -and (& $inscr '41000026') -eq 1 -and (& $inscr '41000027') -eq 2) ''
+# El jugador con dos anios pendientes paga primero el mas viejo, como las cuotas.
+$r = Call 'GET' "$A/api/players/$($ids['41000024'])/enrollment" $T; $e1 = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Inscripcion anual' 'la inscripcion que se muestra y se cobra es la del anio mas viejo con saldo' ($r.s -eq 200 -and $e1.dueDate -eq $hace368) "dueDate=$($e1.dueDate)"
+$r = Call 'POST' "$A/api/players/$($ids['41000024'])/enrollment/payments" $T @{ amount = 70000; paymentMethod = 'Efectivo' }; Chk 'Inscripcion anual' 'se cobra la inscripcion del anio mas viejo' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
+$r = Call 'GET' "$A/api/players/$($ids['41000024'])/enrollment" $T; $e2 = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Inscripcion anual' 'despues queda pendiente la del anio siguiente' ($r.s -eq 200 -and $e2.dueDate -eq (& $f $hoy.AddDays(-3)) -and $e2.pendingBalance -eq 70000) "dueDate=$($e2.dueDate) saldo=$($e2.pendingBalance)"
 # ================= 3. BARRIDO DE LECTURAS DEL ADMINISTRATIVO
 Write-Host '--- 3. Barrido de lecturas del Administrativo' -ForegroundColor Cyan
 $rutas = @('/api/aranceles/historial', '/api/aranceles/resumen', '/api/auditoria/cambios', '/api/categorias', '/api/cuotas-faltantes', '/api/estadisticas/resumen-general', '/api/enrollmentfees',

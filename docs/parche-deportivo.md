@@ -98,7 +98,7 @@ Administrativo está en `src/app/core/auth/portales.config.ts`; en el Administra
 
 - Pruebas del Deportivo: 95 en el BackEnd (antes 18; se reescribieron las del QR porque ahora consulta al Administrativo) y 69 en el FrontEnd (antes 46). Una prueba del FrontEnd
   (`admin-coordinador-legacy-routes`) ya fallaba antes del parche, por nombres de clases; no tiene relación.
-- `scripts/probar.ps1`: 107 verificaciones contra las dos APIs y la base real, sin pendientes.
+- `scripts/probar.ps1`: 116 verificaciones contra las dos APIs y la base real, sin pendientes.
 - Navegador real (`pruebas/e2e/e2e.js`, Chrome automatizado con los dos frontends y las dos APIs levantados): login único, Médica y DT entran directo al
   Deportivo, SuperAdmin pasa y vuelve a la elección de portales, "Personas" abre el alta, y el Deportivo sin sesión redirige al login del Administrativo.
   10 verificaciones, todas correctas. Se corre con `manual.ps1` levantado: `cd pruebas\e2e; npm install; node e2e.js`.
