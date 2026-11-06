@@ -159,7 +159,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
 </table>
 <div class="box ok"><b>Atajo:</b> en <code>UNIF\scripts</code> hay un script que arma y levanta las dos APIs solas, con la base de prueba, para no configurar a mano:
 <pre>.\armar.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\App-Club-Atletico-Camioneros" -Recrear -Iniciar
-.\probar.ps1      # 116 verificaciones automáticas contra las dos APIs
+.\probar.ps1      # 118 verificaciones automáticas contra las dos APIs
 .\detener.ps1     # frena las APIs de prueba</pre>
 (Trabaja sobre una copia: no modifica sus repositorios. Usa los puertos 5318 y 5319.)</div>
 
@@ -172,7 +172,7 @@ npx ng test --watch=false --browsers=ChromeHeadless</pre>
   <li>Desde cualquier pantalla del Deportivo, “Portales” lleva a la elección <b>del Administrativo</b> (no hay otra), con la sesión abierta. “Personas” abre el alta de personas del Deportivo.</li>
   <li>Entrar con <code>30000003</code> (Médica) o <code>30000004</code> (DT) en el login del Administrativo: van <b>directo</b> al Portal Deportivo, sin ver otro login ni la elección de portales.</li>
   <li><b>Alta de jugador</b> (como SuperAdmin): el formulario tiene el campo <b>Género</b> obligatorio; sin género ni categoría no deja guardar.</li>
-  <li>El jugador dado de alta aparece en el listado con estado de cuota (“AL DÍA”, “PENDIENTE” o “INHABILITADO”) que viene del Administrativo.</li>
+  <li>El jugador dado de alta aparece en el listado con estado de cuota (“AL DÍA”, “SOLO ENTRENAMIENTOS”, “INHABILITADO”, “BAJA” o “SIN VERIFICAR” si el Administrativo no respondió), cada uno con su propio color, que viene del Administrativo.</li>
   <li><b>QR</b> (pantalla de escáner o DNI a mano): jugador al día → verde; con un mes de deuda → amarillo; con 2 o más cuotas vencidas → rojo y no registra asistencia.</li>
   <li>Escanear el mismo jugador dos veces el mismo día: dice “ya registrada” y no duplica.</li>
   <li><b>Baja</b>: dar de baja un jugador desde el Deportivo. Desaparece de los listados, el QR lo rechaza (rojo, “dado de baja”) y sus pagos siguen en la base.</li>

@@ -23,6 +23,10 @@ Requisitos: .NET SDK 9, `sqlcmd`, Git para Windows (se usa su `patch.exe`) y SQL
    ```powershell
    .\scripts\armar.ps1 -RepoNuestro "C:\ruta\Sistema Administrativo - CACC" -RepoEllos "C:\ruta\App-Club-Atletico-Camioneros" -Recrear -Iniciar
    ```
+   Si tu SQL Server no es la instancia por defecto (por ejemplo SQL Express), agregá `-Servidor 'localhost\SQLEXPRESS'` (o el nombre de tu instancia) a `armar.ps1`, `iniciar.ps1` y `probar.ps1`;
+   por defecto usan `localhost`.
+   Qué versión del Deportivo usar: el clon de la rama `feat/base-unificada` del PR #22 (ya trae todo, el armado no aplica parches) o, mientras ese PR no esté
+   aceptado, un `main` del Deportivo al que apliquen los parches (se probaron sobre `afa4e60`; si el `main` cambió, los parches pueden no aplicar).
 3. Correr las pruebas:
    ```powershell
    .\scripts\probar.ps1

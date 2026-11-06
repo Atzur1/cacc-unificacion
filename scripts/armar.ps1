@@ -20,7 +20,10 @@ param(
     [string]$Servidor = 'localhost',
     [string]$Base = 'ClubCamionerosUnificadaV2_Prueba',
     [switch]$Recrear,
-    [switch]$Iniciar
+    [switch]$Iniciar,
+    # Toma la seccion Email (SMTP) del appsettings.Development.json local de -RepoNuestro, para probar que los mails salgan de verdad.
+    # Sin esto no hay credenciales de correo y los enlaces solo se escriben en el log.
+    [switch]$ConCorreo
 )
 $ErrorActionPreference = 'Stop'
 if (-not $Destino) { $Destino = Join-Path $PSScriptRoot '..\trabajo' }
@@ -113,11 +116,23 @@ Paso "Escribiendo la configuracion"
 $bytes = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
 $clave = [Convert]::ToBase64String($bytes)
 $cadena = "Server=$Servidor;Database=$Base;Trusted_Connection=True;TrustServerCertificate=True;"
-$json = @{
+$cfgNuestro = @{
     Jwt = @{ Key = $clave; Issuer = 'CACC-Unificado'; Audience = 'CACC-Unificado' }
     ConnectionStrings = @{ ConexionSQL = $cadena }
     Email = @{ PublicBaseUrl = 'http://localhost:4200'; LogResetLink = $true }
-} | ConvertTo-Json -Depth 5
+}
+if ($ConCorreo) {
+    $origen = Join-Path $RepoNuestro 'ApiGestion\appsettings.Development.json'
+    if (-not (Test-Path $origen)) { Fallar "Con -ConCorreo hace falta $origen (tu configuracion local de desarrollo, con la seccion Email)." }
+    $correo = (Get-Content $origen -Raw | ConvertFrom-Json).Email
+    if (-not $correo -or -not $correo.SmtpHost) { Fallar "El appsettings.Development.json local no tiene la seccion Email con SmtpHost." }
+    $email = @{}
+    foreach ($campo in $correo.PSObject.Properties) { $email[$campo.Name] = $campo.Value }
+    $email['PublicBaseUrl'] = 'http://localhost:4200'
+    $email['LogResetLink'] = $false  # con true la API NO envia: solo escribe el enlace en el log (modo sin correo)
+    $cfgNuestro.Email = $email
+}
+$json = $cfgNuestro | ConvertTo-Json -Depth 5
 Set-Content (Join-Path $n 'ApiGestion\appsettings.Development.json') $json -Encoding UTF8
 $json2 = @{
     JwtSettings = @{ Key = $clave; Issuer = 'CACC-Unificado'; Audience = 'CACC-Unificado'; ExpirationMinutes = '60' }
@@ -125,7 +140,12 @@ $json2 = @{
     AdministrativoApi = @{ BaseUrl = 'http://localhost:5318'; TimeoutSegundos = '3' }
 } | ConvertTo-Json -Depth 5
 Set-Content (Join-Path $Destino 'ellos\BackEnd\CACC.API\appsettings.Development.json') $json2 -Encoding UTF8
-Write-Host "  Sin credenciales de correo: los enlaces de activacion se escriben en el log de la API."
+# Credencial de sistema de la API de integracion (HU-055): una clave al azar por armado, en la carpeta de trabajo (no se sube a git).
+# iniciar.ps1, manual.ps1 y probar.ps1 la leen y se la pasan a las dos APIs por variable de entorno.
+$bytesIntegracion = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytesIntegracion)
+Set-Content (Join-Path $Destino 'clave-integracion.txt') ([Convert]::ToBase64String($bytesIntegracion)) -Encoding ASCII
+if ($ConCorreo) { Write-Host "  Con correo real: la API envia los mails por SMTP con tu configuracion local (los enlaces tambien quedan en el log)." }
+else { Write-Host "  Sin credenciales de correo: los enlaces de activacion se escriben en el log de la API." }
 
 # ---- 4. base de datos
 Paso "Creando la base $Base en $Servidor"

@@ -4,6 +4,15 @@ param([string]$Destino = '')
 if (-not $Destino) { $Destino = Join-Path $PSScriptRoot '..\trabajo' }
 $Destino = (Resolve-Path $Destino).Path
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
+# Credencial de sistema de la API de integracion (HU-055). La genera armar.ps1 en trabajo\clave-integracion.txt y se pasa a las
+# dos APIs por VARIABLE DE ENTORNO: en Development los user-secrets del Administrativo pisan appsettings.Development.json.
+# Si el Administrativo todavia no exige la credencial, la variable simplemente se ignora.
+$archivoClave = Join-Path $Destino 'clave-integracion.txt'
+if (Test-Path $archivoClave) {
+    $claveIntegracion = (Get-Content $archivoClave -Raw).Trim()
+    $env:Integracion__ClienteDeportivo__Clave = $claveIntegracion
+    $env:AdministrativoApi__ClaveIntegracion = $claveIntegracion
+}
 Start-Process dotnet -ArgumentList "run --project `"$Destino\nuestro\ApiGestion\ApiGestion.csproj`" --no-build --urls http://localhost:5318" `
     -RedirectStandardOutput "$Destino\log_nuestro.txt" -RedirectStandardError "$Destino\log_nuestro_err.txt" -WindowStyle Hidden
 Start-Process dotnet -ArgumentList "run --project `"$Destino\ellos\BackEnd\CACC.API\CACC.API.csproj`" --no-build --urls http://localhost:5319" `

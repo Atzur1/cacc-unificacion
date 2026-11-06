@@ -19,10 +19,21 @@ $raiz = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Destino) { $Destino = Join-Path $PSScriptRoot '..\trabajo' }
 $Destino = (Resolve-Path $Destino).Path
 $A = $Administrativo; $B = $Deportivo; $PW = 'Camioneros.Test.2026!'
+# Credencial de sistema de la API de integracion (HU-055). La genera armar.ps1 en trabajo\clave-integracion.txt y se pasa a las
+# dos APIs por VARIABLE DE ENTORNO: en Development los user-secrets del Administrativo pisan appsettings.Development.json.
+# Si el Administrativo todavia no exige la credencial, la variable simplemente se ignora.
+$archivoClave = Join-Path $Destino 'clave-integracion.txt'
+if (Test-Path $archivoClave) {
+    $claveIntegracion = (Get-Content $archivoClave -Raw).Trim()
+    $env:Integracion__ClienteDeportivo__Clave = $claveIntegracion
+    $env:AdministrativoApi__ClaveIntegracion = $claveIntegracion
+}
 $res = New-Object System.Collections.Generic.List[object]
 
 function Call($m, $url, $tok, $body) {
     $h = @{}; if ($tok) { $h['Authorization'] = "Bearer $tok" }
+    # Las llamadas directas a la API de integracion llevan la credencial de sistema, como las del Deportivo (HU-055).
+    if ($claveIntegracion -and $url -match '/api/integracion/') { $h['X-Integration-Key'] = $claveIntegracion }
     try {
         $p = @{ Method = $m; Uri = $url; Headers = $h; UseBasicParsing = $true; TimeoutSec = 90 }
         if ($body) { $p.Body = ($body | ConvertTo-Json -Depth 6); $p.ContentType = 'application/json; charset=utf-8' }
@@ -118,6 +129,12 @@ $idPago = [int](SQ "SELECT PK_id_pago FROM PAGOS WHERE FK_id_jugador=$id AND fec
 $r = Call 'POST' "$A/api/pagos/cobro" $T @{ idJugador = $id; idsPago = @($idPago); metodoPago = 'Efectivo' }; Chk 'Flujo' 'se cobra la cuota mas vieja en el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json
 Chk 'QR' 'tras el cobro queda 1 vencida: permitido (solo entrenamientos)' ($j.estado -eq 'solo_entrenamientos' -and $j.accesoPermitido) "estado=$($j.estado) $($j.mensaje)"
+# Deudas y Morosidad muestra el estado que calcula el backend: el mismo que informa la API de integracion (HU-028)
+$rEstado = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000001" $T; $estadoApi = if ($rEstado.s -eq 200) { ($rEstado.b | ConvertFrom-Json).estado } else { $null }
+$rCuentas = Call 'GET' "$A/api/pagos/player-accounts?onlyDebtors=true" $T; $cuenta = if ($rCuentas.s -eq 200) { @($rCuentas.b | ConvertFrom-Json) | Where-Object { $_.playerId -eq $id } | Select-Object -First 1 } else { $null }
+$rPend = Call 'GET' "$A/api/pagos/pendientes" $T; $pend = if ($rPend.s -eq 200) { @($rPend.b | ConvertFrom-Json) | Where-Object { $_.idJugador -eq $id } | Select-Object -First 1 } else { $null }
+Chk 'Estado deportivo' 'la pantalla (cuentas de jugadores) muestra el mismo estado que la API de integracion' ($estadoApi -eq 'solo_entrenamientos' -and $cuenta.sportStatus -eq $estadoApi) "api=$estadoApi pantalla=$($cuenta.sportStatus)"
+Chk 'Estado deportivo' 'la pantalla (pendientes de cobro) muestra el mismo estado que la API de integracion' ($pend.estadoDeportivo -eq $estadoApi) "api=$estadoApi pendientes=$($pend.estadoDeportivo)"
 Chk 'QR' 'la respuesta del QR no lleva montos ni cuotas (privacidad)' ((($j.PSObject.Properties.Name -join ',') -notmatch 'deuda|cuota|monto|importe|saldo') -and ($j.PSObject.Properties.Value | Where-Object { $_ -is [decimal] -or $_ -is [double] -or $_ -is [int] }).Count -eq 0) ($j.PSObject.Properties.Name -join ',')
 $r = Call 'POST' "$A/api/jugadores/$id/baja" $T @{ fecha = (& $f $hoy) }; Chk 'Flujo' 'baja del jugador desde el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 Chk 'Flujo' 'la baja marca activo=0 y cierra el periodo de permanencia' ((SQ "SELECT CAST(activo AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES_PERIODOS WHERE FK_id_jugador=$id AND fecha_baja IS NOT NULL) AS varchar) FROM JUGADORES WHERE PK_id_jugador=$id") -eq '0/1') ''
@@ -244,8 +261,8 @@ $linea = (Select-String -Path "$Destino\log_nuestro.txt" -Pattern 'token=' -Erro
 $tk = if ($linea) { [regex]::Match($linea, 'token=(\S+)').Groups[1].Value } else { '' }
 Chk 'Cuentas' 'se genera el enlace de activacion' ($tk.Length -gt 20) ''
 $r = Call 'POST' "$A/api/auth/account-access/complete" $null @{ token = $tk; password = 'Ana-Camioneros-7731' }; Chk 'Cuentas' 'la politica rechaza una clave con el nombre de la persona' ($r.s -eq 400) "HTTP $($r.s)"
-$r = Call 'POST' "$A/api/auth/account-access/complete" $null @{ token = $tk; password = 'Camioneros-Club-7731' }; Chk 'Cuentas' 'Ana crea su contrasena con el enlace' ($r.s -eq 200) "HTTP $($r.s)"
-$TA = Login '30000002' 'Camioneros-Club-7731'; Chk 'Cuentas' 'Ana entra por DNI' ($null -ne $TA) ''
+$r = Call 'POST' "$A/api/auth/account-access/complete" $null @{ token = $tk; password = 'Tribuna-Norte-7731' }; Chk 'Cuentas' 'Ana crea su contrasena con el enlace' ($r.s -eq 200) "HTTP $($r.s)"
+$TA = Login '30000002' 'Tribuna-Norte-7731'; Chk 'Cuentas' 'Ana entra por DNI' ($null -ne $TA) ''
 $r = Call 'GET' "$A/api/pagos/resumen" $TA; Chk 'Cuentas' 'Ana (rol 2) trabaja en el Administrativo' ($r.s -eq 200) "HTTP $($r.s)"
 $r = Call 'GET' "$A/api/auditoria/cambios" $TA; Chk 'Cuentas' 'Ana no ve Auditoria (solo SuperAdmin)' ($r.s -eq 403) "HTTP $($r.s)"
 $r = Call 'GET' "$B/api/jugadores" $TA; Chk 'Cuentas' 'Ana (solo Administrativo) no entra al Deportivo' ($r.s -in 401, 403) "HTTP $($r.s)"
@@ -259,8 +276,8 @@ Write-Host '--- 6. Deportivo: parche definitivo' -ForegroundColor Cyan
 $T = Login '20111222'
 function DetenerNuestro { Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'ApiGestion\.(csproj|dll|exe)' -and $_.Name -match '^(dotnet|ApiGestion)(\.exe)?$' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep 3 }
 function EstadoCuotaListado($tok) { $r = Call 'GET' "$B/api/jugadores" $tok; if ($r.s -ne 200) { return "HTTP $($r.s)" }; foreach ($i in ($r.b | ConvertFrom-Json)) { if ($i.dni -eq '41000001') { return [string]$i.estadoCuota } }; return 'no figura' }
-Chk 'Deportivo' 'el listado muestra el estado de cuota que informa el Administrativo' ((EstadoCuotaListado $T) -eq 'PENDIENTE') (EstadoCuotaListado $T)
-$r = Call 'GET' "$B/api/jugadores/$id" $T; Chk 'Deportivo' 'la ficha del jugador tambien' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).estadoCuota -eq 'PENDIENTE') "HTTP $($r.s)"
+Chk 'Deportivo' 'el listado muestra el estado de cuota que informa el Administrativo' ((EstadoCuotaListado $T) -eq 'SOLO ENTRENAMIENTOS') (EstadoCuotaListado $T)
+$r = Call 'GET' "$B/api/jugadores/$id" $T; Chk 'Deportivo' 'la ficha del jugador tambien' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).estadoCuota -eq 'SOLO ENTRENAMIENTOS') "HTTP $($r.s)"
 $edicion = @{ nombre = 'Juan'; apellido = 'Perez'; dni = '41000001'; fechaNacimiento = '2010-05-05' }
 $r = Call 'PUT' "$B/api/jugadores/$id" $T ($edicion + @{ genero = 'Otro' }); Chk 'Obligatorios' 'editar un jugador con un genero invalido: 400' ($r.s -eq 400) "HTTP $($r.s) $($r.b)"
 $r = Call 'PUT' "$B/api/jugadores/$id" $T $edicion; Chk 'Obligatorios' 'editar un jugador sin tocar el genero lo conserva' ($r.s -eq 200 -and (SQ "SELECT p.genero FROM PERSONAS p JOIN JUGADORES j ON j.FK_id_persona=p.PK_id_persona WHERE j.PK_id_jugador=$id") -eq 'Masculino') "HTTP $($r.s) $($r.b)"
@@ -289,6 +306,19 @@ Chk 'Bajas' 'la baja cierra el periodo de permanencia' ((SQ "SELECT COUNT(*) FRO
 Chk 'Bajas' 'el jugador dado de baja ya no figura en el listado ni en su ficha' ((EstadoCuotaListado $T) -eq 'no figura' -and (Call 'GET' "$B/api/jugadores/$id" $T).s -eq 404) ''
 $r = Call 'POST' "$B/api/asistencias/verificar-y-registrar" $T @{ dni = '41000001' }; $j = $r.b | ConvertFrom-Json; Chk 'Bajas' 'y el QR no lo deja entrar' ($r.s -eq 200 -and -not $j.accesoPermitido) "HTTP $($r.s) $($r.b)"
 $r = Call 'POST' "$A/api/jugadores/$id/reactivar" $T; Chk 'Bajas' 'el Administrativo lo puede reincorporar con su historial' ($r.s -eq 200 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$id") -eq $pagosAntes) "HTTP $($r.s)"
+# Borrar un jugador que debe algo (el alta ya le genero su inscripcion y su cuota): es baja logica y la deuda no se toca
+$altaConDeuda = @{ dni = '41000040'; nombre = 'Alta'; apellido = 'ConDeuda'; fechaNacimiento = '2012-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }
+$r = Call 'POST' "$B/api/jugadores" $T $altaConDeuda; $idDeuda = if ($r.s -eq 201) { [int](($r.b | ConvertFrom-Json).idJugador) } else { 0 }
+$cargosDeuda = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda")
+$r = Call 'DELETE' "$B/api/jugadores/$idDeuda" $T
+Chk 'Bajas' 'borrar un alta que ya tiene cuotas pendientes (debe algo) es baja logica y no borra la deuda' ($cargosDeuda -ge 1 -and $r.s -eq 200 -and ($r.b | ConvertFrom-Json).eliminado -eq $false -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda") -eq $cargosDeuda -and [int](SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni='41000040'") -eq 1) "HTTP $($r.s) cargos=$cargosDeuda $($r.b)"
+# Un alta cargada por error antes de que existiera ningun arancel (sin cuotas, pagos ni historial) se borra por completo y su DNI queda libre
+$altaError = @{ dni = '41000041'; nombre = 'Alta'; apellido = 'Equivocada'; fechaNacimiento = '2012-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }
+$r = Call 'POST' "$B/api/jugadores" $T $altaError; $idError = if ($r.s -eq 201) { [int](($r.b | ConvertFrom-Json).idJugador) } else { 0 }
+SQ "DELETE FROM PAGOS WHERE FK_id_jugador=$idError" | Out-Null   # simula un alta hecha cuando todavia no habia aranceles cargados
+$r = Call 'DELETE' "$B/api/jugadores/$idError" $T; Chk 'Bajas' 'borrar un alta sin cuotas ni pagos ni historial la elimina por completo' ($r.s -eq 200 -and ($r.b | ConvertFrom-Json).eliminado -eq $true) "HTTP $($r.s) $($r.b)"
+Chk 'Bajas' 'no queda ni la persona ni el jugador' ((SQ "SELECT CAST((SELECT COUNT(*) FROM PERSONAS WHERE dni='41000041') AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES WHERE PK_id_jugador=$idError) AS varchar)") -eq '0/0') ''
+$r = Call 'POST' "$B/api/jugadores" $T $altaError; Chk 'Bajas' 'y el mismo DNI se puede dar de alta de nuevo' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
 
 # ================= 5. CIERRE DE SESION
 Write-Host '--- 5. Cierre de sesion' -ForegroundColor Cyan
