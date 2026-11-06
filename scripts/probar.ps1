@@ -309,9 +309,13 @@ $r = Call 'POST' "$A/api/jugadores/$id/reactivar" $T; Chk 'Bajas' 'el Administra
 # Borrar un jugador que debe algo (el alta ya le genero su inscripcion y su cuota): es baja logica y la deuda no se toca
 $altaConDeuda = @{ dni = '41000040'; nombre = 'Alta'; apellido = 'ConDeuda'; fechaNacimiento = '2012-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }
 $r = Call 'POST' "$B/api/jugadores" $T $altaConDeuda; $idDeuda = if ($r.s -eq 201) { [int](($r.b | ConvertFrom-Json).idJugador) } else { 0 }
-$cargosDeuda = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda")
-$r = Call 'DELETE' "$B/api/jugadores/$idDeuda" $T
-Chk 'Bajas' 'borrar un alta que ya tiene cuotas pendientes (debe algo) es baja logica y no borra la deuda' ($cargosDeuda -ge 1 -and $r.s -eq 200 -and ($r.b | ConvertFrom-Json).eliminado -eq $false -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda") -eq $cargosDeuda -and [int](SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni='41000040'") -eq 1) "HTTP $($r.s) cargos=$cargosDeuda $($r.b)"
+# Una cuota FUTURA sin pagar (por ejemplo, emitida por adelantado): la baja la quita, y solo esa; la deuda hasta el mes en curso queda
+$mesSig = (Get-Date -Year $hoy.Year -Month $hoy.Month -Day 1).AddMonths(1).Date
+SQ "INSERT INTO PAGOS (FK_id_jugador, monto_base, monto_final, fecha_vencimiento, estado, concepto) VALUES ($idDeuda, 85000, 85000, '$(& $f $mesSig)', 0, 'Cuota')" | Out-Null
+$deudaAnterior = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda AND fecha_vencimiento < '$(& $f $mesSig)'")
+$r = Call 'DELETE' "$B/api/jugadores/$idDeuda" $T; $bajaDeuda = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'Bajas' 'borrar un alta que ya tiene deuda (hasta el mes en curso) es baja logica y no borra esa deuda' ($deudaAnterior -ge 1 -and $r.s -eq 200 -and $bajaDeuda.eliminado -eq $false -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda AND fecha_vencimiento < '$(& $f $mesSig)'") -eq $deudaAnterior -and [int](SQ "SELECT COUNT(*) FROM PERSONAS WHERE dni='41000040'") -eq 1) "HTTP $($r.s) deuda=$deudaAnterior $($r.b)"
+Chk 'Bajas' 'la baja desde el Deportivo le pide al Administrativo quitar la cuota futura sin pagar (y solo esa)' ($bajaDeuda.cuotasFuturasQuitadas -eq 1 -and [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$idDeuda AND fecha_vencimiento >= '$(& $f $mesSig)'") -eq 0) "quitadas=$($bajaDeuda.cuotasFuturasQuitadas) aviso=$($bajaDeuda.avisoBaja)"
 # Un alta cargada por error antes de que existiera ningun arancel (sin cuotas, pagos ni historial) se borra por completo y su DNI queda libre
 $altaError = @{ dni = '41000041'; nombre = 'Alta'; apellido = 'Equivocada'; fechaNacimiento = '2012-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Defensor' }
 $r = Call 'POST' "$B/api/jugadores" $T $altaError; $idError = if ($r.s -eq 201) { [int](($r.b | ConvertFrom-Json).idJugador) } else { 0 }
