@@ -325,6 +325,49 @@ $r = Call 'DELETE' "$B/api/jugadores/$idError" $T; Chk 'Bajas' 'borrar un alta s
 Chk 'Bajas' 'no queda ni la persona ni el jugador' ((SQ "SELECT CAST((SELECT COUNT(*) FROM PERSONAS WHERE dni='41000041') AS varchar)+'/'+CAST((SELECT COUNT(*) FROM JUGADORES WHERE PK_id_jugador=$idError) AS varchar)") -eq '0/0') ''
 $r = Call 'POST' "$B/api/jugadores" $T $altaError; Chk 'Bajas' 'y el mismo DNI se puede dar de alta de nuevo' ($r.s -eq 201) "HTTP $($r.s) $($r.b)"
 
+# ================= 7. ESTADO DEPORTIVO (HU-062): becas, inscripcion y alta sin cuota
+# Cada caso usa un jugador propio dado de alta desde el Deportivo; se le quitan los cargos que genero el alta para
+# dejar solo los del caso. El estado se mira en las dos puntas: la API de integracion y el listado del Deportivo.
+Write-Host '--- 7. Estado deportivo: becas, inscripcion y alta sin cuota' -ForegroundColor Cyan
+$T = Login '20111222'
+function AltaDeportivo($dni, $apellido) {
+    $r = Call 'POST' "$B/api/jugadores" $T @{ dni = $dni; nombre = 'Caso'; apellido = $apellido; fechaNacimiento = '2011-03-03'; genero = 'Masculino'; categoria = '3'; posicion = 'Volante' }
+    $idCaso = [int](SQ "SELECT ISNULL((SELECT j.PK_id_jugador FROM JUGADORES j JOIN PERSONAS p ON p.PK_id_persona=j.FK_id_persona WHERE p.dni='$dni'),0)")
+    return @{ s = $r.s; id = $idCaso }
+}
+function SinCargos($idCaso) { SQ "DELETE FROM PAGOS WHERE FK_id_jugador=$idCaso" | Out-Null }
+function EstadoApi($dni) { $r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/$dni" $T; if ($r.s -ne 200) { return "HTTP $($r.s)" }; return [string]($r.b | ConvertFrom-Json).estado }
+function EstadoListadoDe($dni) { $r = Call 'GET' "$B/api/jugadores" $T; if ($r.s -ne 200) { return "HTTP $($r.s)" }; foreach ($i in ($r.b | ConvertFrom-Json)) { if ($i.dni -eq $dni) { return [string]$i.estadoCuota } }; return 'no figura' }
+$alDia = '^AL D.A$'   # "AL DIA" con acento: se compara sin depender de la codificacion del script
+
+# Beca: la cuota vencida quedo en $0 por la bonificacion. No hay nada que pagar, asi que esta al dia.
+$caso = AltaDeportivo '41000040' 'Becado'
+Chk 'EstadoDeportivo' 'alta del jugador del caso beca' (($caso.s -in @(200, 201)) -and $caso.id -gt 0) "HTTP $($caso.s)"
+SinCargos $caso.id
+SQ "INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES ($($caso.id),85000,0,'$(& $f $p1)',0,'Cuota')" | Out-Null
+Chk 'EstadoDeportivo' 'con una beca que deja la cuota en $0, la API lo informa habilitado' ((EstadoApi '41000040') -eq 'habilitado') (EstadoApi '41000040')
+Chk 'EstadoDeportivo' 'y el listado del Deportivo lo muestra AL DIA' ((EstadoListadoDe '41000040') -match $alDia) (EstadoListadoDe '41000040')
+
+# Inscripcion: una inscripcion vencida e impaga es deuda, pero no cuenta para el estado deportivo (solo las cuotas, HU-033).
+$caso = AltaDeportivo '41000041' 'Inscripto'
+Chk 'EstadoDeportivo' 'alta del jugador del caso inscripcion' (($caso.s -in @(200, 201)) -and $caso.id -gt 0) "HTTP $($caso.s)"
+SinCargos $caso.id
+SQ "INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES ($($caso.id),30000,30000,'$(& $f $p2)',0,'Inscripcion')" | Out-Null
+Chk 'EstadoDeportivo' 'una inscripcion vencida e impaga no lo inhabilita: la API lo informa habilitado' ((EstadoApi '41000041') -eq 'habilitado') (EstadoApi '41000041')
+Chk 'EstadoDeportivo' 'y el listado del Deportivo lo muestra AL DIA' ((EstadoListadoDe '41000041') -match $alDia) (EstadoListadoDe '41000041')
+$cuotasCaso = [int](SQ "SELECT COUNT(*) FROM PAGOS WHERE FK_id_jugador=$($caso.id) AND concepto='Cuota'")
+SQ "INSERT PAGOS(FK_id_jugador,monto_base,monto_final,fecha_vencimiento,estado,concepto) VALUES ($($caso.id),85000,85000,'$(& $f $p1)',0,'Cuota')" | Out-Null
+Chk 'EstadoDeportivo' 'con la inscripcion impaga y 1 cuota vencida queda en solo entrenamientos (no suma 2)' ($cuotasCaso -eq 0 -and (EstadoApi '41000041') -eq 'solo_entrenamientos') "API=$(EstadoApi '41000041')"
+
+# Alta reciente sin ninguna cuota generada todavia: el estado tiene que estar definido y sin error en las dos puntas.
+$caso = AltaDeportivo '41000042' 'Nuevo'
+Chk 'EstadoDeportivo' 'alta del jugador recien llegado' (($caso.s -in @(200, 201)) -and $caso.id -gt 0) "HTTP $($caso.s)"
+SinCargos $caso.id
+$r = Call 'GET' "$A/api/integracion/v1/estado-deuda/dni/41000042" $T; $e = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'EstadoDeportivo' 'sin cuotas todavia, la API responde 200 con estado habilitado' ($r.s -eq 200 -and $e.estado -eq 'habilitado' -and $e.accesoPermitido) "HTTP $($r.s) $($r.b)"
+$r = Call 'GET' "$B/api/jugadores/$($caso.id)" $T; $ficha = if ($r.s -eq 200) { $r.b | ConvertFrom-Json } else { $null }
+Chk 'EstadoDeportivo' 'y la ficha del Deportivo lo muestra AL DIA, sin error' ($r.s -eq 200 -and [string]$ficha.estadoCuota -match $alDia) "HTTP $($r.s) estado=$($ficha.estadoCuota)"
+
 # ================= 5. CIERRE DE SESION
 Write-Host '--- 5. Cierre de sesion' -ForegroundColor Cyan
 $TM = Login '30000003'
